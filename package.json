@@ -1,0 +1,56 @@
+{
+  "name": "openclaw-grafana-lens",
+  "version": "0.1.0",
+  "description": "Agent-driven Grafana for OpenClaw — query, visualize, alert, and deliver to messaging channels",
+  "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "openclaw",
+    "grafana",
+    "dashboards",
+    "observability",
+    "ai-agent"
+  ],
+  "scripts": {
+    "test": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/awsome-o/grafana-lens.git"
+  },
+  "bugs": {
+    "url": "https://github.com/awsome-o/grafana-lens/issues"
+  },
+  "homepage": "https://github.com/awsome-o/grafana-lens#readme",
+  "files": [
+    "index.ts",
+    "src/",
+    "skills/",
+    "openclaw.plugin.json",
+    "README.md"
+  ],
+  "dependencies": {
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/api-logs": "^0.57.0",
+    "@opentelemetry/exporter-logs-otlp-http": "^0.57.0",
+    "@opentelemetry/exporter-metrics-otlp-http": "^0.57.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.57.0",
+    "@opentelemetry/resources": "^1.30.0",
+    "@opentelemetry/sdk-logs": "^0.57.0",
+    "@opentelemetry/sdk-metrics": "^1.30.0",
+    "@opentelemetry/sdk-trace-base": "^1.30.0",
+    "@opentelemetry/semantic-conventions": "^1.28.0"
+  },
+  "devDependencies": {
+    "ajv": "^8.18.0",
+    "openclaw": "*",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
