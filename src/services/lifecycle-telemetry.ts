@@ -275,6 +275,8 @@ type SessionTraceState = {
   // Model tracking
   primaryModel: string;
   primaryProvider: string;
+  // Channel (set on first message_received)
+  channel: string;
   // Session identity
   sessionKey: string;
   agentId: string;
@@ -898,9 +900,10 @@ export function createLifecycleTelemetry(
       // Cache efficiency
       "openclaw.cache.hit_ratio": Number(s.cacheHitRatio.toFixed(4)),
       "openclaw.cache.savings_usd": Number(s.cacheSavingsUsd.toFixed(4)),
-      // Model
+      // Model + channel
       "gen_ai.provider.name": session.primaryProvider,
       "gen_ai.request.model": session.primaryModel,
+      ...(session.channel ? { "openclaw.channel": session.channel } as Record<string, string | number | boolean> : {}),
       // Subagent hierarchy attributes
       ...(session.isSubagent && session.parentSessionId ? {
         "openclaw.is_subagent": true,
@@ -1043,6 +1046,7 @@ export function createLifecycleTelemetry(
         latencyCount: 0,
         primaryModel: "",
         primaryProvider: "",
+        channel: "",
         sessionKey: "",
         agentId: ctx.agentId ?? "",
         costThresholdsLogged: new Set(),
@@ -1142,6 +1146,7 @@ export function createLifecycleTelemetry(
           latencyCount: 0,
           primaryModel: "",
           primaryProvider: "",
+          channel: "",
           sessionKey: ctx.sessionKey ?? "",
           agentId: "",
           costThresholdsLogged: new Set(),
@@ -1637,6 +1642,7 @@ export function createLifecycleTelemetry(
         const session = resolveSessionCtx(undefined, ctx.conversationId);
         if (session && !session.firstMessageCaptured) {
           session.firstMessageCaptured = true;
+          if (ctx.channelId) session.channel = ctx.channelId;
           const channel = ctx.channelId ? ` [${ctx.channelId}]` : "";
           const excerpt = event.content
             ? ` "${truncateForSpanName(event.content, 40)}"`

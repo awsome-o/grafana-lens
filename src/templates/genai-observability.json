@@ -136,7 +136,7 @@
       "datasource": { "type": "prometheus", "uid": "$prometheus" },
       "targets": [
         {
-          "expr": "sum(rate(gen_ai_client_operation_duration_seconds_count{gen_ai_operation_name=\"chat\", gen_ai_request_model=~\"$model\", gen_ai_provider_name=~\"$provider\"}[5m]))",
+          "expr": "sum(rate(gen_ai_client_operation_duration_seconds_count{gen_ai_operation_name=\"chat\", gen_ai_request_model=~\"$model\", gen_ai_provider_name=~\"$provider\"}[5m])) or vector(0)",
           "legendFormat": "req/s",
           "refId": "A"
         }
@@ -178,7 +178,7 @@
               { "color": "red", "value": 5 }
             ]
           },
-          "noValue": "N/A"
+          "noValue": "No LLM calls yet"
         }
       },
       "options": {
@@ -195,7 +195,7 @@
       "datasource": { "type": "prometheus", "uid": "$prometheus" },
       "targets": [
         {
-          "expr": "sum(rate(gen_ai_client_token_usage_sum{gen_ai_request_model=~\"$model\", gen_ai_provider_name=~\"$provider\"}[5m]))",
+          "expr": "sum(rate(gen_ai_client_token_usage_sum{gen_ai_request_model=~\"$model\", gen_ai_provider_name=~\"$provider\"}[5m])) or vector(0)",
           "legendFormat": "tokens/s",
           "refId": "A"
         }
@@ -463,7 +463,7 @@
       "options": {
         "orientation": "horizontal",
         "displayMode": "gradient",
-        "showUnfilled": true,
+        "showUnfilled": false,
         "reduceOptions": { "calcs": ["lastNotNull"] }
       }
     },
@@ -478,8 +478,8 @@
     {
       "id": 15,
       "title": "Recent AI Traces",
-      "description": "Recent LLM and agent invocation traces from Tempo. Click a trace to view the full span waterfall.",
-      "type": "traces",
+      "description": "Recent LLM and agent invocation traces from Tempo. Click a trace to view the full span waterfall.\n\nRequires Tempo search. If empty, check Tempo config or click trace_id links in log panels.",
+      "type": "table",
       "gridPos": { "h": 10, "w": 12, "x": 0, "y": 24 },
       "datasource": { "type": "tempo", "uid": "$tempo" },
       "targets": [
@@ -487,6 +487,7 @@
           "queryType": "traceql",
           "query": "{resource.service.name=\"openclaw\" && resource.service.namespace=\"grafana-lens\" && name=~\"(chat|invoke_agent).*\"}",
           "limit": 20,
+          "tableType": "traces",
           "refId": "A"
         }
       ]
@@ -494,8 +495,8 @@
     {
       "id": 16,
       "title": "Slow LLM Calls (>10s)",
-      "description": "LLM calls exceeding 10 seconds. Click to inspect the full trace hierarchy.",
-      "type": "traces",
+      "description": "LLM calls exceeding 10 seconds. Click to inspect the full trace hierarchy.\n\nRequires Tempo search. If empty, check Tempo config or click trace_id links in log panels.",
+      "type": "table",
       "gridPos": { "h": 10, "w": 12, "x": 12, "y": 24 },
       "datasource": { "type": "tempo", "uid": "$tempo" },
       "targets": [
@@ -503,6 +504,7 @@
           "queryType": "traceql",
           "query": "{resource.service.name=\"openclaw\" && resource.service.namespace=\"grafana-lens\" && name=~\"chat.*\" && duration > 10s}",
           "limit": 20,
+          "tableType": "traces",
           "refId": "A"
         }
       ]
@@ -558,7 +560,9 @@
               "openclaw_orphaned": true,
               "gen_ai_operation_name": true,
               "gen_ai_completion": true,
-              "openclaw_tokens_cache_write": true
+              "openclaw_tokens_cache_write": true,
+              "labelTypes": true,
+              "flags": true
             },
             "indexByName": {
               "Time": 0,
@@ -751,7 +755,7 @@
               { "color": "green", "value": 0.6 }
             ]
           },
-          "noValue": "N/A"
+          "noValue": "No cache data yet"
         }
       },
       "options": {

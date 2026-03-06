@@ -377,7 +377,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "{service_name=\"openclaw\"} | json | event_name=~\"prompt_injection.detected|tool.loop|session.reset\"",
+          "expr": "{service_name=\"openclaw\"} | event_name=~\"prompt_injection.detected|tool.loop|session.reset\"",
           "datasource": { "type": "loki", "uid": "${loki}" }
         }
       ]
@@ -401,7 +401,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "{service_name=\"openclaw\"} | json | component=\"lifecycle\" | event_name=~\"gateway.*\"",
+          "expr": "{service_name=\"openclaw\"} | component=\"lifecycle\" | event_name=~\"gateway.*\"",
           "datasource": { "type": "loki", "uid": "${loki}" }
         }
       ]

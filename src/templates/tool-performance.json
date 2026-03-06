@@ -116,7 +116,7 @@
       "datasource": { "type": "prometheus", "uid": "$prometheus" },
       "targets": [
         {
-          "expr": "sum(increase(openclaw_lens_tool_calls_total{tool=~\"$tool\"}[$__range]))",
+          "expr": "sum(increase(openclaw_lens_tool_calls_total{tool=~\"$tool\"}[$__range])) or vector(0)",
           "legendFormat": "total",
           "refId": "A"
         }
@@ -192,7 +192,7 @@
               { "color": "red", "value": 5000 }
             ]
           },
-          "noValue": "N/A"
+          "noValue": "No tool calls yet"
         }
       },
       "options": {
@@ -271,7 +271,7 @@
       "options": {
         "orientation": "horizontal",
         "displayMode": "gradient",
-        "showUnfilled": true,
+        "showUnfilled": false,
         "reduceOptions": { "calcs": ["lastNotNull"] }
       }
     },
@@ -307,7 +307,7 @@
       "options": {
         "orientation": "horizontal",
         "displayMode": "gradient",
-        "showUnfilled": true,
+        "showUnfilled": false,
         "reduceOptions": { "calcs": ["lastNotNull"] }
       }
     },
@@ -445,8 +445,8 @@
     {
       "id": 14,
       "title": "Tool Traces",
-      "description": "execute_tool spans from Tempo. Click to drill into full trace hierarchy showing parent LLM call and session context.",
-      "type": "traces",
+      "description": "execute_tool spans from Tempo. Click to drill into full trace hierarchy showing parent LLM call and session context.\n\nRequires Tempo search. If empty, check Tempo config or click trace_id links in log panels.",
+      "type": "table",
       "gridPos": { "h": 10, "w": 12, "x": 12, "y": 26 },
       "datasource": { "type": "tempo", "uid": "$tempo" },
       "targets": [
@@ -454,6 +454,7 @@
           "queryType": "traceql",
           "query": "{resource.service.name=\"openclaw\" && resource.service.namespace=\"grafana-lens\" && name=~\"execute_tool.*\"}",
           "limit": 20,
+          "tableType": "traces",
           "refId": "A"
         }
       ]
@@ -509,7 +510,9 @@
               "gen_ai_operation_name": true,
               "tool_param_keys": true,
               "tool_error": true,
-              "tool_duration_ms": true
+              "tool_duration_ms": true,
+              "labelTypes": true,
+              "flags": true
             },
             "indexByName": {
               "Time": 0,
@@ -540,8 +543,8 @@
     {
       "id": 17,
       "title": "Tool Error Traces",
-      "description": "Failed tool executions from Tempo. Click to see error details and trace context.",
-      "type": "traces",
+      "description": "Failed tool executions from Tempo. Click to see error details and trace context.\n\nRequires Tempo search. If empty, check Tempo config or click trace_id links in log panels.",
+      "type": "table",
       "gridPos": { "h": 8, "w": 8, "x": 8, "y": 37 },
       "datasource": { "type": "tempo", "uid": "$tempo" },
       "targets": [
@@ -549,6 +552,7 @@
           "queryType": "traceql",
           "query": "{resource.service.name=\"openclaw\" && resource.service.namespace=\"grafana-lens\" && name=~\"execute_tool.*\" && status = error}",
           "limit": 20,
+          "tableType": "traces",
           "refId": "A"
         }
       ]
