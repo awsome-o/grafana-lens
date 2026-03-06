@@ -16,7 +16,7 @@ export type ResolvedPanelQuery = {
   expr: string;
   datasourceUid: string;
   datasourceType: string;
-  queryTool: "grafana_query" | "grafana_query_logs";
+  queryTool: "grafana_query" | "grafana_query_logs" | "grafana_query_traces";
   panelTitle: string;
   panelType: string;
   /** Template variable values replaced with .* for broad matching */
@@ -150,7 +150,7 @@ export async function resolvePanelQuery(
   const cap = getQueryCapability(resolved.type);
   if (!cap.supported) {
     return {
-      error: `Panel ${panelId} uses datasource type '${resolved.type}' which is not supported by grafana_query or grafana_query_logs. Use Grafana UI to view this panel.`,
+      error: `Panel ${panelId} uses datasource type '${resolved.type}' which is not supported by grafana_query, grafana_query_logs, or grafana_query_traces. Use Grafana UI to view this panel.`,
     };
   }
 
@@ -161,7 +161,7 @@ export async function resolvePanelQuery(
     expr,
     datasourceUid: resolved.uid,
     datasourceType: resolved.type,
-    queryTool: cap.queryTool as "grafana_query" | "grafana_query_logs",
+    queryTool: cap.queryTool as "grafana_query" | "grafana_query_logs" | "grafana_query_traces",
     panelTitle: (panel.title as string) ?? "Untitled",
     panelType: (panel.type as string) ?? "unknown",
     templateVarsReplaced: replaced,

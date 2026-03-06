@@ -210,6 +210,72 @@ const LOGQL_RULES: GuidanceRule[] = [
   },
 ];
 
+const TRACEQL_RULES: GuidanceRule[] = [
+  // ── Syntax errors ───────────────────────────────────────────────
+  {
+    pattern: /unexpected.*expecting/i,
+    guidance: () => ({
+      cause: "TraceQL syntax error",
+      suggestion: "Check braces and attribute syntax. TraceQL uses { } for span selectors and resource.attr / span.attr for attributes",
+      example: '{ resource.service.name = "openclaw" } — note: string values require double quotes',
+    }),
+  },
+  {
+    pattern: /invalid attribute/i,
+    guidance: () => ({
+      cause: "Invalid or unknown attribute in TraceQL expression",
+      suggestion: "Use 'resource.' prefix for resource attributes, 'span.' for span attributes. Common: resource.service.name, span.http.status_code, name, duration, status",
+    }),
+  },
+  {
+    pattern: /empty query/i,
+    guidance: () => ({
+      cause: "Empty TraceQL query",
+      suggestion: "Provide a TraceQL expression. Simple: { } to match all traces. Filtered: { resource.service.name = \"openclaw\" }",
+      example: '{ resource.service.name = "openclaw" && duration > 1s }',
+    }),
+  },
+
+  // ── Auth/connection ─────────────────────────────────────────────
+  {
+    pattern: /authentication failed/i,
+    guidance: () => ({
+      cause: "Grafana service account token is invalid or expired",
+      suggestion: "Check GRAFANA_SERVICE_ACCOUNT_TOKEN — ensure the service account has Editor role",
+    }),
+  },
+  {
+    pattern: /timeout|context deadline exceeded/i,
+    guidance: () => ({
+      cause: "Trace search timed out — too many traces matched",
+      suggestion: "Narrow the time range, add attribute filters, or set minDuration/maxDuration to reduce scope",
+    }),
+  },
+  {
+    pattern: /Not found/i,
+    guidance: () => ({
+      cause: "Datasource not found or not a Tempo datasource",
+      suggestion: "Use grafana_explore_datasources to verify the datasource UID and type. Use grafana_query for Prometheus, grafana_query_logs for Loki",
+    }),
+  },
+
+  // ── Trace ID issues ─────────────────────────────────────────────
+  {
+    pattern: /trace.*not found|failed to get trace/i,
+    guidance: () => ({
+      cause: "Trace ID not found in Tempo",
+      suggestion: "The trace may have expired (check Tempo retention) or the ID may be incorrect. Use queryType 'search' to find recent traces first",
+    }),
+  },
+  {
+    pattern: /invalid trace id/i,
+    guidance: () => ({
+      cause: "Invalid trace ID format — must be a 32-character hex string",
+      suggestion: "Trace IDs are 32 hex chars (e.g., 'abc123def456...'). Get valid IDs from a search query or from trace_id fields in log entries",
+    }),
+  },
+];
+
 // ── Public API ────────────────────────────────────────────────────────
 
 /** Match an error against a rule list, returning the first matching guidance. */
@@ -238,6 +304,14 @@ export function getPromQLGuidance(error: string, expr: string): QueryGuidance | 
  */
 export function getLogQLGuidance(error: string, expr: string): QueryGuidance | undefined {
   return matchGuidanceRule(LOGQL_RULES, error, expr);
+}
+
+/**
+ * Match a TraceQL error to structured guidance for agent recovery.
+ * Returns undefined if no pattern matches.
+ */
+export function getTraceQLGuidance(error: string, expr: string): QueryGuidance | undefined {
+  return matchGuidanceRule(TRACEQL_RULES, error, expr);
 }
 
 // ── Prometheus warnings (infos field) ─────────────────────────────────

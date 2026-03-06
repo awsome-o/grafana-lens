@@ -63,13 +63,13 @@ describe("grafana_explore_datasources tool", () => {
       supported: true,
     });
 
-    // Tempo → unsupported
+    // Tempo → grafana_query_traces (TraceQL)
     expect(parsed.datasources[2]).toMatchObject({
       uid: "tempo1",
       type: "tempo",
-      queryTool: null,
-      queryLanguage: null,
-      supported: false,
+      queryTool: "grafana_query_traces",
+      queryLanguage: "TraceQL",
+      supported: true,
     });
   });
 
@@ -101,12 +101,15 @@ describe("getQueryCapability", () => {
     });
   });
 
-  test("unknown types return unsupported", () => {
+  test("tempo maps to grafana_query_traces with TraceQL", () => {
     expect(getQueryCapability("tempo")).toEqual({
-      queryTool: null,
-      queryLanguage: null,
-      supported: false,
+      queryTool: "grafana_query_traces",
+      queryLanguage: "TraceQL",
+      supported: true,
     });
+  });
+
+  test("unknown types return unsupported", () => {
     expect(getQueryCapability("elasticsearch")).toEqual({
       queryTool: null,
       queryLanguage: null,

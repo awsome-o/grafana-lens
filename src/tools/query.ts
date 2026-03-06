@@ -142,7 +142,7 @@ export function createQueryToolFactory(config: ValidatedGrafanaLensConfig) {
           }
           if (resolved.queryTool !== "grafana_query") {
             return jsonResult({
-              error: `Panel ${panelId} ('${resolved.panelTitle}') uses ${resolved.datasourceType} datasource. Use grafana_query_logs with the same dashboardUid + panelId instead.`,
+              error: `Panel ${panelId} ('${resolved.panelTitle}') uses ${resolved.datasourceType} datasource. Use ${resolved.queryTool} with the same dashboardUid + panelId instead.`,
             });
           }
           // Panel values are defaults — explicit params override

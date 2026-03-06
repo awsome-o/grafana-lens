@@ -494,6 +494,89 @@ describe("grafana_query_logs tool", () => {
   });
 
   // ══════════════════════════════════════════════════════════════════
+  // traceCorrelation — log-to-trace hints
+  // ══════════════════════════════════════════════════════════════════
+
+  test("stream results with extractFields includes traceCorrelation when trace_id present", async () => {
+    queryLokiRangeMock.mockResolvedValueOnce({
+      status: "success",
+      data: {
+        resultType: "streams",
+        result: [
+          {
+            stream: {
+              component: "lifecycle",
+              openclaw_trace_id: "trace-aaa111",
+              openclaw_session_id: "s1",
+            },
+            values: [["1700000000000000000", "LLM call started"]],
+          },
+          {
+            stream: {
+              component: "lifecycle",
+              openclaw_trace_id: "trace-bbb222",
+              openclaw_session_id: "s2",
+            },
+            values: [["1700000001000000000", "LLM call ended"]],
+          },
+          {
+            stream: {
+              component: "lifecycle",
+              openclaw_trace_id: "trace-aaa111",
+              openclaw_session_id: "s1",
+            },
+            values: [["1700000002000000000", "Tool call started"]],
+          },
+        ],
+      },
+    });
+
+    const tool = createQueryLogsToolFactory(makeConfig())({} as never);
+    const result = await tool!.execute("call-trace-corr", {
+      datasourceUid: "loki1",
+      expr: '{service_name="openclaw"}',
+      extractFields: true,
+    });
+
+    const parsed = JSON.parse(getTextContent(result));
+    expect(parsed.traceCorrelation).toBeDefined();
+    expect(parsed.traceCorrelation.tool).toBe("grafana_query_traces");
+    // Should contain unique trace IDs (deduplicated)
+    expect(parsed.traceCorrelation.traceIds).toContain("trace-aaa111");
+    expect(parsed.traceCorrelation.traceIds).toContain("trace-bbb222");
+    expect(parsed.traceCorrelation.traceIds).toHaveLength(2);
+    expect(parsed.traceCorrelation.tip).toContain("2 trace ID(s)");
+  });
+
+  test("stream results without extractFields omits traceCorrelation", async () => {
+    queryLokiRangeMock.mockResolvedValueOnce({
+      status: "success",
+      data: {
+        resultType: "streams",
+        result: [
+          {
+            stream: {
+              component: "lifecycle",
+              openclaw_trace_id: "trace-aaa111",
+            },
+            values: [["1700000000000000000", "test log"]],
+          },
+        ],
+      },
+    });
+
+    const tool = createQueryLogsToolFactory(makeConfig())({} as never);
+    const result = await tool!.execute("call-no-trace-corr", {
+      datasourceUid: "loki1",
+      expr: '{service_name="openclaw"}',
+      // extractFields NOT set — default false
+    });
+
+    const parsed = JSON.parse(getTextContent(result));
+    expect(parsed.traceCorrelation).toBeUndefined();
+  });
+
+  // ══════════════════════════════════════════════════════════════════
   // Top-level series/result truncation for matrix and vector
   // ══════════════════════════════════════════════════════════════════
 

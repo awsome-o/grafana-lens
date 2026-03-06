@@ -39,6 +39,7 @@ import { createQueryLogsToolFactory } from "./src/tools/query-logs.js";
 import { createUpdateDashboardToolFactory } from "./src/tools/update-dashboard.js";
 import { createExplainMetricToolFactory } from "./src/tools/explain-metric.js";
 import { createSecurityCheckToolFactory } from "./src/tools/security-check.js";
+import { createQueryTracesToolFactory } from "./src/tools/query-traces.js";
 import type {
   SessionStartEvent, SessionStartCtx,
   SessionEndEvent, SessionEndCtx,
@@ -127,6 +128,7 @@ const plugin = {
     api.registerTool(createUpdateDashboardToolFactory(validConfig));
     api.registerTool(createExplainMetricToolFactory(validConfig));
     api.registerTool(createSecurityCheckToolFactory(validConfig));
+    api.registerTool(createQueryTracesToolFactory(validConfig));
 
     // ── Register before_agent_start hook for alert awareness ─────────
     api.on("before_agent_start", (_event: unknown, _ctx: unknown) => {
@@ -254,9 +256,9 @@ const plugin = {
         getLifecycleTelemetry()?.onGatewayStop(event as GatewayStopEvent);
       });
 
-      api.logger.info("grafana-lens: registered 15 tools, services, and 16 lifecycle hooks");
+      api.logger.info("grafana-lens: registered 16 tools, services, and 16 lifecycle hooks");
     } else {
-      api.logger.info("grafana-lens: registered 15 tools and services (lifecycle hooks skipped — metrics disabled)");
+      api.logger.info("grafana-lens: registered 16 tools and services (lifecycle hooks skipped — metrics disabled)");
     }
   },
 };

@@ -123,6 +123,70 @@ export type LokiQueryResult = {
   };
 };
 
+// ── Tempo / trace types ─────────────────────────────────────────────
+
+export type TempoAttribute = {
+  key: string;
+  value: {
+    stringValue?: string;
+    intValue?: string;
+    doubleValue?: number;
+    boolValue?: boolean;
+    arrayValue?: { values: Array<{ stringValue?: string }> };
+  };
+};
+
+export type TempoSearchTrace = {
+  traceID: string;
+  rootServiceName: string;
+  rootTraceName: string;
+  startTimeUnixNano: string;
+  durationMs: number;
+  spanSets?: Array<{
+    spans: Array<{
+      spanID: string;
+      startTimeUnixNano: string;
+      durationNanos: string;
+      attributes?: TempoAttribute[];
+    }>;
+    matched: number;
+  }>;
+};
+
+export type TempoSearchResult = {
+  traces: TempoSearchTrace[];
+};
+
+export type TempoSpan = {
+  traceId: string;
+  spanId: string;
+  parentSpanId?: string;
+  operationName?: string;
+  name?: string;
+  startTimeUnixNano: string;
+  endTimeUnixNano: string;
+  status?: { code?: number | string; message?: string };
+  attributes?: TempoAttribute[];
+  kind?: number | string;
+};
+
+export type TempoScopeSpans = {
+  scope?: { name?: string; version?: string };
+  spans: TempoSpan[];
+};
+
+export type TempoResourceSpans = {
+  resource?: { attributes?: TempoAttribute[] };
+  scopeSpans: TempoScopeSpans[];
+};
+
+export type TempoTraceResult = {
+  /** OTLP JSON format (some Tempo versions) */
+  resourceSpans?: TempoResourceSpans[];
+  /** Protobuf-JSON format (Tempo v2 default — uses base64 IDs, string kind/status) */
+  batches?: TempoResourceSpans[];
+};
+
 // ── Annotation types ────────────────────────────────────────────────
 
 export type AnnotationCreateRequest = {
@@ -614,6 +678,50 @@ export class GrafanaClient {
     }
 
     return (await res.json()) as LokiQueryResult;
+  }
+
+  // ── Tempo query methods ──────────────────────────────────────────────
+
+  /** Search traces via TraceQL or basic query parameters. */
+  async searchTraces(
+    dsUid: string,
+    query: string,
+    opts?: { start?: string; end?: string; limit?: number; minDuration?: string; maxDuration?: string; spss?: number },
+  ): Promise<TempoSearchResult> {
+    const params = new URLSearchParams({ q: query });
+    if (opts?.start) params.set("start", parseDateMathToSeconds(opts.start));
+    if (opts?.end) params.set("end", parseDateMathToSeconds(opts.end));
+    if (opts?.limit) params.set("limit", String(opts.limit));
+    if (opts?.minDuration) params.set("minDuration", opts.minDuration);
+    if (opts?.maxDuration) params.set("maxDuration", opts.maxDuration);
+    if (opts?.spss) params.set("spss", String(opts.spss));
+
+    const res = await this.fetchWithTimeout(
+      `${this.baseUrl}/api/datasources/proxy/uid/${dsUid}/api/search?${params}`,
+      { headers: this.headers },
+    );
+
+    if (!res.ok) {
+      const body = await res.text();
+      throw this.classifyError("search traces", res.status, body);
+    }
+
+    return (await res.json()) as TempoSearchResult;
+  }
+
+  /** Get a full trace by trace ID. */
+  async getTrace(dsUid: string, traceId: string): Promise<TempoTraceResult> {
+    const res = await this.fetchWithTimeout(
+      `${this.baseUrl}/api/datasources/proxy/uid/${dsUid}/api/traces/${traceId}`,
+      { headers: this.headers },
+    );
+
+    if (!res.ok) {
+      const body = await res.text();
+      throw this.classifyError(`get trace ${traceId}`, res.status, body);
+    }
+
+    return (await res.json()) as TempoTraceResult;
   }
 
   // ── Annotation methods ──────────────────────────────────────────────

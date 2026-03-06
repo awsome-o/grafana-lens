@@ -11,8 +11,8 @@ import { jsonResult } from "openclaw/plugin-sdk";
 import { GrafanaClient } from "../grafana-client.js";
 import type { ValidatedGrafanaLensConfig } from "../config.js";
 
-export type QueryToolName = "grafana_query" | "grafana_query_logs";
-export type QueryLanguageName = "PromQL" | "LogQL";
+export type QueryToolName = "grafana_query" | "grafana_query_logs" | "grafana_query_traces";
+export type QueryLanguageName = "PromQL" | "LogQL" | "TraceQL";
 
 /** Discriminated union: supported datasources have non-null tool+language, unsupported have null. */
 export type QueryCapability =
@@ -23,6 +23,7 @@ export type QueryCapability =
 const DATASOURCE_CAPABILITIES: Record<string, { queryTool: QueryToolName; queryLanguage: QueryLanguageName }> = {
   prometheus: { queryTool: "grafana_query", queryLanguage: "PromQL" },
   loki: { queryTool: "grafana_query_logs", queryLanguage: "LogQL" },
+  tempo: { queryTool: "grafana_query_traces", queryLanguage: "TraceQL" },
 };
 
 /** Returns routing hints for a datasource type, or an unsupported fallback. */
@@ -44,7 +45,7 @@ export function createExploreDatasourcesToolFactory(config: ValidatedGrafanaLens
     label: "Explore Datasources",
     description: [
       "Discover datasources configured in Grafana.",
-      "WORKFLOW: Use first to find datasource UIDs needed by grafana_query, grafana_query_logs, grafana_list_metrics, grafana_create_alert, and grafana_explain_metric.",
+      "WORKFLOW: Use first to find datasource UIDs needed by grafana_query, grafana_query_logs, grafana_query_traces, grafana_list_metrics, grafana_create_alert, and grafana_explain_metric.",
       "Returns datasources with UIDs, types, and queryTool routing (which tool + query language to use for each datasource).",
       "No parameters required.",
     ].join(" "),

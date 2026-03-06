@@ -1,6 +1,6 @@
 ---
 name: grafana-lens
-description: "Grafana tools for data visualization, monitoring, alerting, and security. Use grafana_query, grafana_query_logs, grafana_create_dashboard, grafana_update_dashboard, grafana_create_alert, grafana_share_dashboard, grafana_annotate, grafana_explore_datasources, grafana_list_metrics, grafana_search, grafana_get_dashboard, grafana_check_alerts, grafana_push_metrics, grafana_explain_metric, and grafana_security_check. Trigger when asked about metrics, dashboards, monitoring, alerts, costs, token usage, data visualization, PromQL, Prometheus, LogQL, Loki, log queries, error logs, log search, annotations, deployments, sharing charts, investigating alert notifications, pushing custom data (calendar, git, fitness, finance) to Grafana for visualization, pushing historical data, backfilling metrics, recording past data with timestamps, modifying dashboards, adding panels, removing panels, changing dashboard settings, updating dashboard time range, explain metric, metric trend, what is this metric, how has this changed, is this metric normal, why did my bill spike, cost visibility, security monitoring, security check, security audit, am I being attacked, is my agent compromised, suspicious activity, threat detection, prompt injection detection, set up security alerts."
+description: "Grafana tools for data visualization, monitoring, alerting, and security. Use grafana_query, grafana_query_logs, grafana_query_traces, grafana_create_dashboard, grafana_update_dashboard, grafana_create_alert, grafana_share_dashboard, grafana_annotate, grafana_explore_datasources, grafana_list_metrics, grafana_search, grafana_get_dashboard, grafana_check_alerts, grafana_push_metrics, grafana_explain_metric, and grafana_security_check. Trigger when asked about metrics, dashboards, monitoring, alerts, costs, token usage, data visualization, PromQL, Prometheus, LogQL, Loki, log queries, error logs, log search, TraceQL, Tempo, traces, distributed tracing, span search, find slow traces, debug session traces, annotations, deployments, sharing charts, investigating alert notifications, pushing custom data (calendar, git, fitness, finance) to Grafana for visualization, pushing historical data, backfilling metrics, recording past data with timestamps, modifying dashboards, adding panels, removing panels, changing dashboard settings, updating dashboard time range, explain metric, metric trend, what is this metric, how has this changed, is this metric normal, why did my bill spike, cost visibility, security monitoring, security check, security audit, am I being attacked, is my agent compromised, suspicious activity, threat detection, prompt injection detection, set up security alerts."
 metadata:
   {
     "openclaw":
@@ -23,7 +23,8 @@ You have full native Grafana access — query data, create dashboards, set alert
 - **Always call `grafana_get_dashboard` before `grafana_update_dashboard`** — you need panel IDs and current structure
 - **Prefer `grafana_query` for direct answers** over creating dashboards — "what's my cost?" needs a number, not a URL
 - **Prefer `grafana_query` over `grafana_create_dashboard` + `grafana_share_dashboard`** for simple data questions — a number is faster than a chart
-- **Use `grafana_query_logs` for log searches** — LogQL for logs, PromQL for metrics. Never use `grafana_query` for Loki datasources
+- **Use `grafana_query_logs` for log searches** — LogQL for logs, PromQL for metrics, TraceQL for traces. Never use `grafana_query` for Loki datasources
+- **Use `grafana_query_traces` for trace searches** — TraceQL for traces, PromQL for metrics, LogQL for logs. Never use `grafana_query` or `grafana_query_logs` for Tempo datasources
 - **All tools work with ANY Prometheus datasource** — not just `openclaw_lens_*` metrics
 - **When you see "GRAFANA ALERTS" in prompt context**, investigate immediately with `grafana_check_alerts` — use the `suggestedInvestigation` field to go directly to querying (it provides the tool, query, and datasource)
 - **Run `grafana_check_alerts` with action `setup` once** before alert notifications can reach the agent — this creates the webhook contact point
@@ -41,6 +42,8 @@ You have full native Grafana access — query data, create dashboards, set alert
 - "What is [metric]?" / "Why did it spike?" → `grafana_explain_metric`
 - "What's the current value of X?" / complex PromQL → `grafana_query`
 - "Find error logs" / "Search logs for..." → `grafana_query_logs`
+- "Find slow traces" / "Show trace for session X" / "Debug distributed spans" → `grafana_query_traces`
+- "Debug this session" / "Why did it fail?" / "What went wrong?" → `grafana_query_traces` (search error/slow) → `grafana_query_traces` (get → follow `correlationHint`) → `grafana_query_logs` → `grafana_query` → `grafana_annotate`
 - "Show me a chart" / "Visualize..." → `grafana_search` → `grafana_get_dashboard` → `grafana_share_dashboard`
 - "Create a dashboard for..." → `grafana_search` (check duplicates) → `grafana_create_dashboard`
 - "Add a panel to my dashboard" → `grafana_get_dashboard` → `grafana_update_dashboard`
@@ -72,6 +75,7 @@ You have full native Grafana access — query data, create dashboards, set alert
 | `grafana_list_metrics` | Discover available metrics or label values from a datasource. Use `compact: true` with `metadata: true` for minimal fields in multi-tool chains |
 | `grafana_query` | Run PromQL instant/range queries — get numbers directly |
 | `grafana_query_logs` | Run LogQL queries against Loki — search and filter logs |
+| `grafana_query_traces` | Run TraceQL queries against Tempo — search traces or get full trace by ID |
 | `grafana_create_dashboard` | Create dashboards from templates or custom JSON |
 | `grafana_update_dashboard` | Add/remove/update panels, change dashboard metadata, or delete dashboard |
 | `grafana_get_dashboard` | Get dashboard summary (panels, queries). Use `compact: true` for overview scans, `audit: true` to health-check all panels in one call |
@@ -87,10 +91,10 @@ You have full native Grafana access — query data, create dashboards, set alert
 ## Tool Details
 
 ### `grafana_explore_datasources`
-**When**: First step when user mentions data, metrics, or monitoring. Gets datasource UIDs needed by `grafana_query`, `grafana_query_logs`, `grafana_list_metrics`, `grafana_create_alert`, and `grafana_explain_metric`.
+**When**: First step when user mentions data, metrics, or monitoring. Gets datasource UIDs needed by `grafana_query`, `grafana_query_logs`, `grafana_query_traces`, `grafana_list_metrics`, `grafana_create_alert`, and `grafana_explain_metric`.
 **Params**: None required.
 **Example**: `{}`
-**Returns**: List of datasources with `uid`, `name`, `type`, `isDefault`, plus routing hints: `queryTool` (which agent tool to use, e.g. `"grafana_query"` or `"grafana_query_logs"`), `queryLanguage` (e.g. `"PromQL"`, `"LogQL"`), and `supported` (boolean — whether an agent tool can query this datasource). Use `queryTool` to pick the right tool for each datasource.
+**Returns**: List of datasources with `uid`, `name`, `type`, `isDefault`, plus routing hints: `queryTool` (which agent tool to use, e.g. `"grafana_query"`, `"grafana_query_logs"`, or `"grafana_query_traces"`), `queryLanguage` (e.g. `"PromQL"`, `"LogQL"`, `"TraceQL"`), and `supported` (boolean — whether an agent tool can query this datasource). Use `queryTool` to pick the right tool for each datasource.
 
 ### `grafana_list_metrics`
 **When**: User asks "what metrics are available?" or you need to discover metrics before querying or composing dashboards. Also when grouping metrics by function — metadata mode adds `category` to each `openclaw_*` metric. Use `purpose` when user asks about a specific concern (e.g., "performance metrics", "cost metrics").
@@ -135,11 +139,28 @@ You have full native Grafana access — query data, create dashboards, set alert
 **Example panel re-run**: `{ "dashboardUid": "openclaw-command-center", "panelId": 18, "start": "now-24h", "extractFields": true }`
 **Returns streams**: `{ entries: [{ labels: {...}, timestamp: "...", line: "..." }], datasourceUid, totalEntries, truncated }` — capped at 100 entries, lines at 500 chars (set `lineLimit: 2000` for full stack traces).
 **Returns streams (extractFields)**: `{ entries: [{ labels: {...cleaned...}, timestamp: "...", line: "...", fields: { component, event_name, session_id, trace_id, model, duration_s, ... } }], datasourceUid }` — infrastructure noise labels removed, `openclaw_` prefix stripped from field keys, numeric values auto-converted. Also parses JSON log bodies if present.
+**Returns streams (traceCorrelation)**: When `extractFields: true` and entries contain `trace_id`, includes `traceCorrelation: { traceIds: [...], tool: "grafana_query_traces", tip }` — up to 5 unique trace IDs ready for `grafana_query_traces` with `queryType: "get"`.
 **Returns metric**: Same shape as `grafana_query` range/instant results (matrix capped at 50 series, vector capped at 50 results — includes `datasourceUid`, `truncated`, `totalSeries`/`totalResults`, and `truncationHint` when exceeded).
 **Returns (panel re-run)**: Includes `resolvedFrom: "panel"`, `panelTitle`, `panelType`, `templateVarsReplaced` alongside normal results. If the panel uses a Prometheus datasource, returns an error directing you to use `grafana_query` instead.
 **Returns (error with guidance)**: On query failure, includes `guidance: { cause, suggestion, example? }` alongside the raw error. Pattern-matched for common LogQL mistakes: bare text without stream selector, empty `{}`, unclosed braces, missing label matchers, auth failure, timeout. Omitted when the error is unrecognized.
 **Tip**: LogQL: `{label="value"}` selects streams, `|=` substring filter, `|~` regex, `!=` exclude. Metric wrappers: `rate()`, `count_over_time()`, `bytes_rate()`. Use `extractFields: true` when investigating OTel/lifecycle logs — it surfaces `trace_id`, `session_id`, `event_name`, `model`, and other attributes as first-class fields instead of buried in raw labels.
 **Tip (panel re-run)**: Same as `grafana_query` — set `dashboardUid` + `panelId` to auto-resolve LogQL and datasource. The tool routes Prometheus panels to `grafana_query` with a helpful error.
+
+### `grafana_query_traces`
+**When**: User asks about traces, distributed tracing, slow spans, session trace hierarchies, or needs to debug request flows across services.
+**Params**: `datasourceUid`, `query` (TraceQL expression or trace ID), `queryType` (`search`/`get`, default `search`), `start`/`end` (default `now-1h`/`now`), `limit` (default 20, max 50), `minDuration`/`maxDuration` (e.g., `"1s"`, `"10s"`), `dashboardUid` (optional — resolve query from panel), `panelId` (optional — use with `dashboardUid`).
+**Example search**: `{ "datasourceUid": "tempo1", "query": "{ resource.service.name = \"openclaw\" }" }`
+**Example search slow**: `{ "datasourceUid": "tempo1", "query": "{ resource.service.name = \"openclaw\" }", "minDuration": "5s" }`
+**Example search with time**: `{ "datasourceUid": "tempo1", "query": "{ span.gen_ai.system = \"anthropic\" }", "start": "now-24h", "limit": 50 }`
+**Example get**: `{ "datasourceUid": "tempo1", "query": "abc123def456789...", "queryType": "get" }`
+**Example panel re-run**: `{ "dashboardUid": "openclaw-session-explorer", "panelId": 12, "start": "now-24h" }`
+**Returns search**: `{ traces: [{ traceId, rootServiceName, rootTraceName, startTime, durationMs, spanCount? }], datasourceUid, totalTraces, truncated?, correlationHint? }` — capped at 50 traces. When exceeded includes `truncated: true` and `truncationHint`. When traces are found, includes `correlationHint: { logQuery, tool, tip }` with a ready-to-use LogQL expression for `grafana_query_logs`.
+**Returns get**: `{ traceId, spans: [{ traceId, spanId, parentSpanId?, operationName, serviceName, startTime, durationMs, status, kind?, attributes: {...} }], datasourceUid, totalSpans, truncated? }` — flattened OTLP spans with resolved attributes (string/number/boolean). Capped at 200 spans. Sorted by start time (earliest first).
+**Returns (panel re-run)**: Includes `resolvedFrom: "panel"`, `panelTitle`, `panelType`, `templateVarsReplaced` alongside normal results. If the panel uses a Prometheus or Loki datasource, returns an error directing you to use the correct tool.
+**Returns (error with guidance)**: On query failure, includes `guidance: { cause, suggestion, example? }` alongside the raw error. Pattern-matched for common TraceQL mistakes: syntax errors, invalid attributes, auth failure, timeout, not-found, invalid trace ID. Omitted when the error is unrecognized.
+**Returns (no results)**: When search returns zero traces, includes `hint: { cause, suggestion }` suggesting to broaden the query or check the datasource.
+**Tip**: TraceQL: `{ }` matches all traces, `resource.service.name` for service filter, `span.http.status_code` for HTTP spans, `name` for operation name, `duration` for span duration, `status` for error/ok filtering. Use `minDuration`/`maxDuration` to find performance outliers. **Trace-to-Log**: search and get results include `correlationHint.logQuery` — pass it directly to `grafana_query_logs` to find correlated logs. **Log-to-Trace**: `grafana_query_logs` results (with `extractFields: true`) include `traceCorrelation.traceIds` — pass any ID to `grafana_query_traces` with `queryType: "get"`.
+**Tip (panel re-run)**: Same as `grafana_query` — set `dashboardUid` + `panelId` to auto-resolve TraceQL and datasource. The tool routes Prometheus/Loki panels to the correct tool with a helpful error.
 
 ### `grafana_create_dashboard`
 **When**: User wants a persistent dashboard for ongoing monitoring.
@@ -558,8 +579,15 @@ The 6 AI observability templates provide comprehensive OpenClaw monitoring with 
 **"Why is my LLM slow?" (multi-signal investigation)**
 1. `grafana_explain_metric` with `gen_ai_client_operation_duration_seconds` — check latency trend
 2. `grafana_query_logs` with `{service_name="openclaw"} | json | component="lifecycle" |= "llm.output"`, `extractFields: true` — find slow LLM calls with `fields.duration_s` and `fields.model` surfaced directly
-3. Use `fields.trace_id` from the response to look up the full trace in the session-explorer dashboard's Tempo panel
+3. `grafana_query_traces` with `queryType: "get"` and `fields.trace_id` from step 2 — inspect spans; response includes `correlationHint.logQuery` for correlated logs
 4. `grafana_query` with model-specific duration breakdown — identify which model is slow
+
+**"Debug a slow or failing session"**
+1. `grafana_query_traces` with `{ resource.service.name = "openclaw" && status = error }` or `minDuration: "10s"` — find problematic traces
+2. `grafana_query_traces` with `queryType: "get"` and the trace ID — inspect span hierarchy (response includes `correlationHint`)
+3. `grafana_query_logs` with the `correlationHint.logQuery` from step 2, `extractFields: true` — correlated logs
+4. `grafana_query` with relevant PromQL — check metrics around the same time window
+5. `grafana_annotate` with `text: "Debug: [findings]"`, `tags: ["debug"]` — mark investigation on dashboards
 
 **"Which dashboards are stale?" / "Give me a dashboard summary report"**
 1. `grafana_search` with `query: ""` and `enrich: true` — gets `updatedAt`, `panelCount`, `folderTitle` for every dashboard

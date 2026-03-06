@@ -9,7 +9,7 @@ description: >
 
 # Grafana Lens E2E Tests
 
-Integration tests for all 14 Grafana Lens tools against a live LGTM stack + Grafana.
+Integration tests for all 16 Grafana Lens tools against a live LGTM stack + Grafana.
 Tests run via `openclaw agent` in gateway mode. Each test group is self-contained.
 
 **Default behavior**: detect local uncommitted changes → identify affected tools → test only those.
@@ -25,7 +25,7 @@ Run `git diff --name-only` and `git diff --cached --name-only` in the grafana-le
 Changed File                          → Test Group(s)
 ──────────────────────────────────────────────────────
 src/config.ts                         → ALL (critical shared dep, all 14 tools)
-src/grafana-client.ts                 → Discovery + Query + Dashboard + Alerting
+src/grafana-client.ts                 → Discovery + Query + Traces + Dashboard + Alerting
 index.ts                              → ALL (wiring changes)
 src/services/custom-metrics-store.ts  → Metrics Push
 src/services/otel-metrics.ts          → Metrics Push
@@ -46,14 +46,18 @@ src/tools/share-dashboard.ts          → Dashboard
 src/tools/create-alert.ts             → Alerting
 src/tools/check-alerts.ts             → Alerting
 src/tools/annotate.ts                 → Alerting
+src/tools/query-traces.ts             → Traces
+src/tools/query-guidance.ts           → Query + Traces
+src/tools/resolve-panel.ts            → Query + Traces
 src/templates/*                       → Dashboard
 ```
 
 **User overrides** (skip change detection):
-- "run all e2e tests" → all 5 groups in order
+- "run all e2e tests" → all 6 groups in order
 - "run discovery tests" → only Discovery
 - "run metrics-push and query tests" → those 2 groups
 - "test push-metrics" → Metrics Push group
+- "test traces" → Traces group
 
 If no local changes detected and no override given, ask the user which groups to run.
 
@@ -121,6 +125,7 @@ For each test:
 - Discovery: `e2e-discovery`
 - Metrics Push: `e2e-metrics-push`
 - Query: `e2e-query`
+- Traces: `e2e-traces`
 - Dashboard: `e2e-dashboard`
 - Alerting: `e2e-alerting`
 
@@ -263,6 +268,50 @@ openclaw agent --session-id e2e-query -m "Explain the 'up' metric -- what is its
 
 ---
 
+### Group: Traces
+
+**Tools**: `grafana_query_traces` (search + get)
+**Preconditions**: Tempo datasource available (uid discoverable via `grafana_explore_datasources`), gateway running
+**Session**: `e2e-traces`
+
+#### TR1: Discover Tempo Datasource
+```bash
+openclaw agent --session-id e2e-traces -m "What datasources are configured in Grafana? I need to find the Tempo datasource."
+```
+**Expected tool**: `grafana_explore_datasources`
+**Pass**: Response includes a Tempo datasource with `uid`, query tool `grafana_query_traces`, language `TraceQL`.
+
+#### TR2: TraceQL Search
+```bash
+openclaw agent --session-id e2e-traces -m "Search for any traces in the last hour using the Tempo datasource. Use a broad TraceQL query like '{ status = ok || status = error || status = unset }' to match all traces."
+```
+**Expected tool**: `grafana_query_traces` with `queryType: "search"`
+**Pass**: Response includes `traces` array with `traceId`, `rootServiceName`, `rootTraceName`, `durationMs`, `startTime`. May be empty if no recent traces exist — mark SKIP.
+
+#### TR3: Get Trace by ID
+```bash
+openclaw agent --session-id e2e-traces -m "Get the full trace details for trace ID <trace-id-from-TR2> from the Tempo datasource. Show me the spans."
+```
+**Expected tool**: `grafana_query_traces` with `queryType: "get"`
+**Pass**: Response includes `spans` array with `traceId` (hex), `spanId` (hex), `operationName`, `serviceName`, `durationMs`, `status`, `kind`, `attributes`. **SKIP** if TR2 returned no traces.
+**Note**: Tempo v2 returns protobuf-JSON format (`batches` key, base64 IDs, string kind/status). The tool normalizes this to hex IDs and friendly status/kind strings.
+
+#### TR4: Search with Duration Filter
+```bash
+openclaw agent --session-id e2e-traces -m "Search for traces with duration over 10 seconds in the last hour from the Tempo datasource. Use minDuration."
+```
+**Expected tool**: `grafana_query_traces` with `minDuration: "10s"`
+**Pass**: Response includes only traces with `durationMs >= 10000` (or empty if none that slow).
+
+#### TR5: TraceQL Attribute Filter
+```bash
+openclaw agent --session-id e2e-traces -m "Search for traces matching this TraceQL: { span.gen_ai.operation.name = \"execute_tool\" && duration > 50ms } using the Tempo datasource."
+```
+**Expected tool**: `grafana_query_traces` with TraceQL span attribute filter
+**Pass**: Response includes traces matching the filter. **SKIP** if no matching traces.
+
+---
+
 ### Group: Dashboard
 
 **Tools**: `grafana_create_dashboard`, `grafana_get_dashboard`, `grafana_update_dashboard`, `grafana_share_dashboard`
@@ -375,6 +424,8 @@ openclaw agent --session-id e2e-alerting -m "List recent annotations with the ta
 | Gateway restart takes a few seconds | Commands immediately after may fail | Wait 3-5s after restart |
 | `openclaw health` reports "pairing required" | Looks like gateway is broken | Ignore — `openclaw agent` works fine for local dev. Check log output for "registered 14 tools" |
 | Old timestamps (>10m) may be dropped by Mimir | Timestamped push tests may not land data | Test tool acceptance, not Mimir storage. Verify real-time pushes only |
+| Tempo v2 returns protobuf-JSON format | `batches` key (not `resourceSpans`), base64 IDs, string kind/status | Tool normalizes to hex IDs + friendly strings. Both formats handled |
+| `grafana_query_traces` needs Tempo with data | Empty results if no recent traces ingested | Mark SKIP if no Tempo datasource or no traces |
 
 ---
 
@@ -405,6 +456,7 @@ openclaw agent --session-id e2e-cleanup -m "Delete the custom metrics 'e2e_test_
 | Discovery | explore_datasources, list_metrics, search | D1–D3 | `e2e-discovery` |
 | Metrics Push | push_metrics (register, push, list, delete, timestamped, mixed, rejection) | MP1–MP7 | `e2e-metrics-push` |
 | Query | query, query_logs, explain_metric | Q1–Q4 | `e2e-query` |
+| Traces | query_traces (search + get, duration filter, TraceQL attribute filter) | TR1–TR5 | `e2e-traces` |
 | Dashboard | create_dashboard, get_dashboard, update_dashboard, share_dashboard | DB1–DB6 | `e2e-dashboard` |
 | Alerting | check_alerts, create_alert, annotate | A1–A5 | `e2e-alerting` |
-| **Total** | **14 tools** | **25 tests** | |
+| **Total** | **16 tools** | **30 tests** | |

@@ -235,7 +235,7 @@ export function createQueryLogsToolFactory(config: ValidatedGrafanaLensConfig) {
           }
           if (resolved.queryTool !== "grafana_query_logs") {
             return jsonResult({
-              error: `Panel ${panelId} ('${resolved.panelTitle}') uses ${resolved.datasourceType} datasource. Use grafana_query with the same dashboardUid + panelId instead.`,
+              error: `Panel ${panelId} ('${resolved.panelTitle}') uses ${resolved.datasourceType} datasource. Use ${resolved.queryTool} with the same dashboardUid + panelId instead.`,
             });
           }
           expr = expr ?? resolved.expr;
@@ -302,6 +302,15 @@ function formatLokiResult(result: LokiQueryResult, opts: FormatLokiOpts) {
     const { entries, totalEntries } = flattenStreams(streams, limit, lineLimit);
     const finalEntries = extractFields ? entries.map(extractStructuredFields) : entries;
 
+    // Collect unique trace_ids from extracted fields for correlation hint
+    const traceIds = extractFields
+      ? [...new Set(
+          finalEntries
+            .map((e) => (e as { fields?: Record<string, unknown> }).fields?.trace_id)
+            .filter((id): id is string => typeof id === "string" && id.length > 0),
+        )].slice(0, 5)
+      : [];
+
     return jsonResult({
       status: "success",
       queryType,
@@ -312,6 +321,13 @@ function formatLokiResult(result: LokiQueryResult, opts: FormatLokiOpts) {
       totalEntries,
       entries: finalEntries,
       ...(totalEntries > entries.length ? { truncated: true } : {}),
+      ...(traceIds.length > 0 ? {
+        traceCorrelation: {
+          traceIds,
+          tool: "grafana_query_traces",
+          tip: `Found ${traceIds.length} trace ID(s) in log entries. Use grafana_query_traces with queryType "get" and any traceId to see the full distributed trace.`,
+        },
+      } : {}),
       ...panelMeta,
     });
   }
