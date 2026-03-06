@@ -1,6 +1,6 @@
 {
   "name": "openclaw-grafana-lens",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Agent-driven Grafana for OpenClaw — query, visualize, alert, and deliver to messaging channels",
   "type": "module",
   "license": "MIT",
