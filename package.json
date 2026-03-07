@@ -1,15 +1,23 @@
 {
   "name": "openclaw-grafana-lens",
   "version": "0.2.0",
-  "description": "Agent-driven Grafana for OpenClaw — query, visualize, alert, and deliver to messaging channels",
+  "description": "OpenClaw plugin that gives AI agents full Grafana access — 16 composable tools for PromQL/LogQL/TraceQL queries, dashboard creation, alerting, security monitoring (prompt injection detection, tool loop detection), and full OTLP observability (metrics, logs, traces) with gen_ai semantic conventions",
   "type": "module",
   "license": "MIT",
   "keywords": [
-    "openclaw",
-    "grafana",
-    "dashboards",
-    "observability",
-    "ai-agent"
+    "openclaw", "openclaw-plugin", "grafana", "grafana-plugin",
+    "observability", "monitoring", "dashboards", "alerting",
+    "ai-agent", "ai-observability", "genai", "llm-monitoring", "llm-observability",
+    "opentelemetry", "otlp", "otel", "gen-ai-semantic-conventions",
+    "promql", "logql", "traceql",
+    "prometheus", "loki", "tempo", "mimir", "lgtm-stack",
+    "metrics", "logs", "traces", "distributed-tracing",
+    "prompt-injection-detection", "security-monitoring", "tool-loop-detection",
+    "cost-tracking", "token-usage", "ai-cost-management",
+    "dashboard-templates", "panel-rendering",
+    "custom-metrics", "data-observatory",
+    "agent-tools", "composable-tools",
+    "secret-redaction", "sre", "incident-response"
   ],
   "scripts": {
     "test": "vitest",

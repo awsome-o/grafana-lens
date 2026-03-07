@@ -1,10 +1,10 @@
 # Grafana Lens
 
-**Agent-driven Grafana observability for OpenClaw — query, visualize, alert, and share across 15+ messaging channels.**
+**Agent-driven Grafana observability for OpenClaw — query, visualize, alert, trace, and share across 15+ messaging channels.**
 
 > **Note:** This is a community-built OpenClaw plugin, not an official Grafana Labs product. Grafana, Loki, Tempo, and Prometheus are trademarks of Grafana Labs.
 
-[OpenClaw](https://openclaw.com) is an open-source AI agent platform. Grafana Lens extends it with full Grafana integration — 15 composable tools that let your agent query metrics, create dashboards, set up alerts, render charts, run security audits, and push custom data — all through natural language conversation.
+[OpenClaw](https://openclaw.com) is an open-source AI agent platform. Grafana Lens extends it with full Grafana integration — 16 composable tools that let your agent query metrics and logs, trace distributed requests, create dashboards, set up alerts, render charts, run security audits, and push custom data — all through natural language conversation.
 
 ---
 
@@ -23,7 +23,7 @@
 
 ## Key Features
 
-- **15 Composable Agent Tools** — Query PromQL/LogQL, create dashboards, set alerts, share panel images, run security checks, push custom metrics, and more
+- **16 Composable Agent Tools** — Query PromQL/LogQL/TraceQL, create dashboards, set alerts, share panel images, run security checks, push custom metrics, and more
 - **Full OTLP Observability** — Metrics → Prometheus, Logs → Loki, Traces → Tempo. Push-based with no scraping — data is available immediately
 - **Security Monitoring** — 6-check threat assessment covering prompt injection, cost anomalies, tool loops, session enumeration, webhook errors, and stuck sessions
 - **12 Pre-Built Dashboard Templates** — From LLM Command Center and Cost Intelligence to Security Overview and SRE Operations
@@ -219,6 +219,8 @@ Just talk to your agent in natural language:
 - **"Track my daily steps"** — Pushes custom fitness data into Grafana via OTLP for personal dashboards
 - **"What metrics are available?"** — Discovers all metrics in your Prometheus datasource with descriptions
 - **"What does openclaw_lens_daily_cost_usd mean? Why did it spike?"** — Explains the metric with current value, trend, stats, and drill-down suggestions
+- **"Find slow traces in the last hour"** — Searches Tempo traces by duration, status, or span attributes using TraceQL
+- **"Show me the trace for session abc123"** — Retrieves full distributed trace with hierarchical span details
 - **Create and customize your own unique dashboards** — Combine any data from Prometheus, Loki, or custom metrics to build personalized monitoring views
 
 ### For Grafana Power Users — Let an AI Agent Manage Your Grafana
@@ -236,7 +238,7 @@ Just talk to your agent in natural language:
 
 ## Agent Tools
 
-All 15 tools are registered automatically when the plugin loads. The agent decides when to use each tool based on your request.
+All 16 tools are registered automatically when the plugin loads. The agent decides when to use each tool based on your request.
 
 | Tool | Description | Example Use |
 |------|-------------|-------------|
@@ -255,6 +257,7 @@ All 15 tools are registered automatically when the plugin loads. The agent decid
 | `grafana_push_metrics` | Push custom data (calendar, git, fitness, finance) via OTLP | "Track my daily steps in Grafana" |
 | `grafana_explain_metric` | Get metric context: current value, trend, stats, metadata | "Why did my bill spike?" |
 | `grafana_security_check` | Run 6 parallel security checks → threat level report | "Am I being attacked?" |
+| `grafana_query_traces` | Run TraceQL queries against Tempo; search traces or get full trace by ID | "Find slow traces" / "Show trace for session X" |
 
 ---
 
@@ -376,7 +379,7 @@ Grafana Lens is a **self-contained OpenClaw plugin** — all Grafana interaction
 │                                                 │
 │  ┌─────────────────────────────────────────┐    │
 │  │  Grafana Lens Plugin                    │    │
-│  │  • 15 Agent Tools                       │    │
+│  │  • 16 Agent Tools                       │    │
 │  │  • MetricsCollector Service             │    │
 │  │  • AlertWebhook Service                 │    │
 │  │  • LifecycleTelemetry (16 hooks)        │    │
@@ -412,7 +415,7 @@ Grafana Lens is a **self-contained OpenClaw plugin** — all Grafana interaction
 
 | Decision | Choice | Why |
 |----------|--------|-----|
-| Everything is tools | 15 composable tools, no background automation | Agent decides when to act; Grafana handles scheduled work |
+| Everything is tools | 16 composable tools, no background automation | Agent decides when to act; Grafana handles scheduled work |
 | Self-contained | Bundled GrafanaClient (REST API) | No external MCP servers or dependencies |
 | OTLP push | Push-based metrics, logs, traces | No scraping delay — data available immediately |
 | General-purpose | Works with ANY Grafana datasource | Not limited to `openclaw_lens_*` metrics |
@@ -472,6 +475,17 @@ Span names follow the [OpenTelemetry gen_ai semantic conventions](https://opente
 ### Log-to-Trace Correlation
 
 Span-producing events include a `trace_id` attribute in their log records. In Grafana, this enables click-through from Loki logs directly to the corresponding Tempo trace — useful for debugging specific LLM calls or tool failures.
+
+### Distributed Trace Queries
+
+The `grafana_query_traces` tool queries Tempo directly using TraceQL:
+
+- **Search by attributes** — `{ span.service.name = "openclaw" && duration > 5s }` finds slow spans
+- **Search by status** — `{ status = error }` finds failed operations
+- **Get trace by ID** — Retrieves the full span tree for a specific trace, with hierarchical parent-child relationships
+- **Log-to-trace click-through** — Span-producing events include `trace_id` in Loki log records, enabling one-click navigation from a log line to the full Tempo trace in Grafana
+
+The tool handles both OTLP JSON and Tempo's protobuf-JSON response formats (base64-encoded IDs, string enum kinds/status codes) transparently.
 
 ### Secret Redaction
 
@@ -571,7 +585,7 @@ grafana-lens/
 │   ├── config.ts                     # Config parsing and validation
 │   ├── grafana-client.ts             # Bundled Grafana REST API client
 │   ├── metric-definitions.ts         # Shared metric registry
-│   ├── tools/                        # 15 agent tools
+│   ├── tools/                        # 16 agent tools
 │   │   ├── query.ts                  # grafana_query
 │   │   ├── query-logs.ts             # grafana_query_logs
 │   │   ├── create-dashboard.ts       # grafana_create_dashboard
@@ -586,7 +600,8 @@ grafana-lens/
 │   │   ├── list-metrics.ts           # grafana_list_metrics
 │   │   ├── push-metrics.ts           # grafana_push_metrics
 │   │   ├── explain-metric.ts         # grafana_explain_metric
-│   │   └── security-check.ts         # grafana_security_check
+│   │   ├── security-check.ts         # grafana_security_check
+│   │   └── query-traces.ts           # grafana_query_traces
 │   ├── services/
 │   │   ├── metrics-collector.ts      # Diagnostic event → OTLP push
 │   │   ├── alert-webhook.ts          # Grafana alert webhook handler
