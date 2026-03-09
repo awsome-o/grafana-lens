@@ -872,4 +872,187 @@ describe("grafana_check_alerts tool", () => {
     expect(extractRuleUidFromGeneratorUrl("http://localhost:3000/dashboards")).toBeNull();
     expect(extractRuleUidFromGeneratorUrl("")).toBeNull();
   });
+
+  // ── Analyze action (alert fatigue) ──────────────────────────────────
+
+  test("analyze returns healthy when all rules are normal", async () => {
+    listAlertRulesMock.mockResolvedValueOnce([
+      {
+        uid: "rule-1",
+        title: "Cost Alert",
+        folderUID: "f1",
+        ruleGroup: "g1",
+        condition: "C",
+        data: [{ refId: "A", datasourceUid: "prom-1", model: { expr: "up" } }],
+        for: "5m",
+        noDataState: "NoData",
+        execErrState: "Alerting",
+        labels: {},
+        annotations: {},
+        updated: "2026-02-20T10:00:00Z",
+        provenance: "",
+      },
+    ]);
+    getAlertRuleStatesMock.mockResolvedValueOnce(new Map([
+      ["rule-1", {
+        uid: "rule-1",
+        state: "inactive",
+        health: "ok",
+        lastEvaluation: "2026-02-20T12:00:00Z",
+        evaluationTime: 0.001,
+        isPaused: false,
+      }],
+    ]));
+
+    const store = createAlertStore();
+    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const result = await tool!.execute("call-analyze-1", { action: "analyze" });
+
+    const parsed = JSON.parse(getTextContent(result));
+    expect(parsed.status).toBe("success");
+    expect(parsed.totalRules).toBe(1);
+    expect(parsed.overallHealth).toBe("healthy");
+    expect(parsed.fatigueReport.alwaysFiring).toHaveLength(0);
+    expect(parsed.fatigueReport.flapping).toHaveLength(0);
+    expect(parsed.fatigueReport.healthy).toBe(1);
+  });
+
+  test("analyze detects flapping rules with error health", async () => {
+    listAlertRulesMock.mockResolvedValueOnce([
+      {
+        uid: "rule-err",
+        title: "Broken Alert",
+        folderUID: "f1",
+        ruleGroup: "g1",
+        condition: "C",
+        data: [{ refId: "A", datasourceUid: "prom-1", model: { expr: "nonexistent_metric" } }],
+        for: "5m",
+        noDataState: "NoData",
+        execErrState: "Alerting",
+        labels: {},
+        annotations: {},
+        updated: "2026-02-20T10:00:00Z",
+        provenance: "",
+      },
+    ]);
+    getAlertRuleStatesMock.mockResolvedValueOnce(new Map([
+      ["rule-err", {
+        uid: "rule-err",
+        state: "firing",
+        health: "error",
+        lastEvaluation: "2026-02-20T12:00:00Z",
+        evaluationTime: 0.001,
+        isPaused: false,
+      }],
+    ]));
+
+    const store = createAlertStore();
+    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const result = await tool!.execute("call-analyze-2", { action: "analyze" });
+
+    const parsed = JSON.parse(getTextContent(result));
+    expect(parsed.overallHealth).toBe("moderate_fatigue");
+    expect(parsed.fatigueReport.flapping).toHaveLength(1);
+    expect(parsed.fatigueReport.flapping[0].uid).toBe("rule-err");
+    expect(parsed.fatigueReport.flapping[0].suggestion).toContain("error");
+  });
+
+  test("analyze detects nodata rules as flapping", async () => {
+    listAlertRulesMock.mockResolvedValueOnce([
+      {
+        uid: "rule-nodata",
+        title: "Missing Data Alert",
+        folderUID: "f1",
+        ruleGroup: "g1",
+        condition: "C",
+        data: [{ refId: "A", datasourceUid: "prom-1", model: { expr: "missing_metric" } }],
+        for: "5m",
+        noDataState: "NoData",
+        execErrState: "Alerting",
+        labels: {},
+        annotations: {},
+        updated: "2026-02-20T10:00:00Z",
+        provenance: "",
+      },
+    ]);
+    getAlertRuleStatesMock.mockResolvedValueOnce(new Map([
+      ["rule-nodata", {
+        uid: "rule-nodata",
+        state: "nodata",
+        health: "nodata",
+        lastEvaluation: "2026-02-20T12:00:00Z",
+        evaluationTime: 0.001,
+        isPaused: false,
+      }],
+    ]));
+
+    const store = createAlertStore();
+    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const result = await tool!.execute("call-analyze-3", { action: "analyze" });
+
+    const parsed = JSON.parse(getTextContent(result));
+    expect(parsed.fatigueReport.flapping).toHaveLength(1);
+    expect(parsed.fatigueReport.flapping[0].suggestion).toContain("no data");
+  });
+
+  test("analyze returns empty report when no rules exist", async () => {
+    listAlertRulesMock.mockResolvedValueOnce([]);
+
+    const store = createAlertStore();
+    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const result = await tool!.execute("call-analyze-4", { action: "analyze" });
+
+    const parsed = JSON.parse(getTextContent(result));
+    expect(parsed.status).toBe("success");
+    expect(parsed.totalRules).toBe(0);
+    expect(parsed.overallHealth).toBe("healthy");
+    expect(parsed.suggestions[0]).toContain("No alert rules");
+  });
+
+  test("analyze handles API error gracefully", async () => {
+    listAlertRulesMock.mockRejectedValueOnce(new Error("API 500"));
+
+    const store = createAlertStore();
+    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const result = await tool!.execute("call-analyze-5", { action: "analyze" });
+
+    const parsed = JSON.parse(getTextContent(result));
+    expect(parsed.error).toContain("Failed to analyze");
+  });
+
+  test("analyze reports severe fatigue when many rules are problematic", async () => {
+    const rules = Array.from({ length: 5 }, (_, i) => ({
+      uid: `rule-${i}`,
+      title: `Broken Rule ${i}`,
+      folderUID: "f1",
+      ruleGroup: "g1",
+      condition: "C",
+      data: [{ refId: "A", datasourceUid: "prom-1", model: { expr: "broken" } }],
+      for: "5m",
+      noDataState: "NoData",
+      execErrState: "Alerting",
+      labels: {},
+      annotations: {},
+      updated: "2026-02-20T10:00:00Z",
+      provenance: "",
+    }));
+    listAlertRulesMock.mockResolvedValueOnce(rules);
+    const stateMap = new Map(rules.map((r) => [r.uid, {
+      uid: r.uid,
+      state: "nodata",
+      health: "nodata",
+      lastEvaluation: "2026-02-20T12:00:00Z",
+      evaluationTime: 0.001,
+      isPaused: false,
+    }]));
+    getAlertRuleStatesMock.mockResolvedValueOnce(stateMap);
+
+    const store = createAlertStore();
+    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const result = await tool!.execute("call-analyze-6", { action: "analyze" });
+
+    const parsed = JSON.parse(getTextContent(result));
+    expect(parsed.overallHealth).toBe("severe_fatigue");
+    expect(parsed.fatigueReport.flapping).toHaveLength(5);
+  });
 });

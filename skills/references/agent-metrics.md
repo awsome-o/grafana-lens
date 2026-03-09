@@ -407,3 +407,9 @@ The `usage.session_summary` log (event_name=`usage.session_summary`) includes th
 | `subagent.spawn` | Subagent spawned by parent | `openclaw_agent_id`, `openclaw_mode`, `openclaw_child_session_key` |
 | `subagent.linked` | Deferred linking completed — child matched to parent | `openclaw_session_id` (child), `openclaw_parent_session_id`, `openclaw_parent_trace_id`, `openclaw_subagent_agent_id` |
 | `subagent.end` | Subagent finished | `openclaw_target_session_key`, `openclaw_reason`, `openclaw_outcome` |
+
+## SRE Investigation Patterns
+
+For advanced investigation patterns — anomaly detection (z-score, predict_linear),
+RED/USE method compositions, SLI/SLO burn rates, and multi-signal investigation workflows
+— see [sre-investigation.md](sre-investigation.md).

@@ -1,6 +1,6 @@
 ---
 name: grafana-lens
-description: "Grafana tools for data visualization, monitoring, alerting, and security. Use grafana_query, grafana_query_logs, grafana_query_traces, grafana_create_dashboard, grafana_update_dashboard, grafana_create_alert, grafana_share_dashboard, grafana_annotate, grafana_explore_datasources, grafana_list_metrics, grafana_search, grafana_get_dashboard, grafana_check_alerts, grafana_push_metrics, grafana_explain_metric, and grafana_security_check. Trigger when asked about metrics, dashboards, monitoring, alerts, costs, token usage, data visualization, PromQL, Prometheus, LogQL, Loki, log queries, error logs, log search, TraceQL, Tempo, traces, distributed tracing, span search, find slow traces, debug session traces, annotations, deployments, sharing charts, investigating alert notifications, pushing custom data (calendar, git, fitness, finance) to Grafana for visualization, pushing historical data, backfilling metrics, recording past data with timestamps, modifying dashboards, adding panels, removing panels, changing dashboard settings, updating dashboard time range, explain metric, metric trend, what is this metric, how has this changed, is this metric normal, why did my bill spike, cost visibility, security monitoring, security check, security audit, am I being attacked, is my agent compromised, suspicious activity, threat detection, prompt injection detection, set up security alerts."
+description: "Grafana tools for data visualization, monitoring, alerting, security, and SRE investigation. Use grafana_query, grafana_query_logs, grafana_query_traces, grafana_create_dashboard, grafana_update_dashboard, grafana_create_alert, grafana_share_dashboard, grafana_annotate, grafana_explore_datasources, grafana_list_metrics, grafana_search, grafana_get_dashboard, grafana_check_alerts, grafana_push_metrics, grafana_explain_metric, grafana_security_check, and grafana_investigate. Trigger when asked about metrics, dashboards, monitoring, alerts, costs, token usage, data visualization, PromQL, Prometheus, LogQL, Loki, log queries, error logs, log search, TraceQL, Tempo, traces, distributed tracing, span search, find slow traces, debug session traces, annotations, deployments, sharing charts, investigating alert notifications, pushing custom data (calendar, git, fitness, finance) to Grafana for visualization, pushing historical data, backfilling metrics, recording past data with timestamps, modifying dashboards, adding panels, removing panels, changing dashboard settings, updating dashboard time range, explain metric, metric trend, what is this metric, how has this changed, is this metric normal, why did my bill spike, cost visibility, security monitoring, security check, security audit, am I being attacked, is my agent compromised, suspicious activity, threat detection, prompt injection detection, set up security alerts, investigate, debug, triage, root cause, what's wrong, why is X broken, anomaly detection, RED method, USE method, alert fatigue, postmortem, incident summary."
 metadata:
   {
     "openclaw":
@@ -32,6 +32,7 @@ You have full native Grafana access — query data, create dashboards, set alert
 - **Prefer `grafana_explain_metric` for "what is this metric?" questions** over manual `grafana_query` — it returns current value, trend, stats, and metadata in one call
 - **Use `queryNames` from push response for PromQL queries** — don't guess metric names (counters get `_total` suffix)
 - **Use `openclaw_ext_` prefix for custom metrics** — `grafana_push_metrics` auto-prepends it if missing
+- **Follow statistics-first discipline for log investigation** — always run count/rate LogQL before reading individual entries. Use `grafana_query_logs` with metric-over-logs queries (`count_over_time`, `rate`, `topk`) before switching to raw log entries
 - **Silence alerts during investigation** — use `grafana_check_alerts` with action `silence` to prevent repeat notifications while investigating
 - **Use `list_rules` for complete alert health** — `grafana_check_alerts` with action `list_rules` returns all rules with live eval state (normal/firing/pending/nodata/error), health, and lastEvaluation — no need to cross-reference with `list` action
 - **Use `dashboardUid` + `panelId` to re-run panel queries** — don't manually extract PromQL/LogQL from `get_dashboard` output. Both `grafana_query` and `grafana_query_logs` accept these params to auto-resolve the panel's query expression and datasource. The tool handles template variable replacement and datasource routing automatically
@@ -66,6 +67,12 @@ You have full native Grafana access — query data, create dashboards, set alert
 - "Am I being attacked?" / "Security check" / "Security status" → `grafana_security_check`
 - "Set up security monitoring" → `grafana_check_alerts` (setup) → `grafana_create_dashboard` (`security-overview`) → `grafana_create_alert` (webhook error burst, cost spike, tool loops, injection signals)
 - "Investigate security alert" → `grafana_security_check` → `grafana_query_logs` (correlate) → `grafana_annotate` (mark investigation) → `grafana_check_alerts` (silence)
+- "Investigate this alert" / "Why is X broken?" / "Debug this issue" / "Triage" / "Root cause" → `grafana_investigate` (multi-signal triage) → follow `suggestedHypotheses.testWith` for deep-dives
+- "Is this metric normal?" / "Is there an anomaly?" → `grafana_explain_metric` (returns `anomaly` z-score + `seasonality` vs 1d/7d ago for 24h period)
+- "RED analysis" / "What's the error rate?" / "Service health" → RED Method queries (see sre-investigation.md §2)
+- "Alert fatigue" / "Which alerts are noisy?" / "Alert health" → `grafana_check_alerts` with action `analyze` — fatigue report
+- "Postmortem" / "Incident summary" / "What happened?" → `grafana_investigate` → 5-Phase methodology → postmortem template (see sre-investigation.md §9)
+- "Compare before/after deployment" → `grafana_annotate` (list, tags: ["deploy"]) → `grafana_explain_metric` (compareWith: "previous")
 
 ## Tool Inventory
 
@@ -87,6 +94,7 @@ You have full native Grafana access — query data, create dashboards, set alert
 | `grafana_push_metrics` | Push custom data (calendar, git, fitness, finance) via OTLP |
 | `grafana_explain_metric` | Get metric context: current value, trend, stats, metadata, drill-down queries — agent interprets |
 | `grafana_security_check` | Run 6 parallel security checks and return threat-level assessment (green/yellow/red) — "Am I being attacked?" |
+| `grafana_investigate` | Multi-signal investigation triage — gathers metrics, logs, traces, and context in parallel, generates hypotheses with specific tool+params for follow-up |
 
 ## Tool Details
 
@@ -353,6 +361,16 @@ Panel statuses: `ok` (query returned data), `nodata` (valid query, no results �
 **Auto-discovery**: No datasource UID needed — auto-discovers first Prometheus datasource. Loki is optional (skips log check if absent).
 **Follow-up**: Use `dashboardTemplate` to create a persistent security dashboard. Use `suggestedActions` for investigation steps.
 
+### `grafana_investigate`
+**When**: First step for "investigate this", "what's wrong?", "triage", "root cause analysis", "debug this issue", or any multi-signal investigation.
+**Params**: `focus` (required — alert UID, metric name, or symptom text), `timeWindow` (optional, default `"1h"`, options: `"1h"`, `"6h"`, `"24h"`), `service` (optional, default `"openclaw"`).
+**Example**: `{ "focus": "high error rate" }`
+**Example with alert**: `{ "focus": "alert-abc", "timeWindow": "6h" }`
+**Example with metric**: `{ "focus": "openclaw_lens_daily_cost_usd", "timeWindow": "24h" }`
+**Returns**: `{ timeWindow, focus, metricSignals: { focus: { current, trend, anomalyScore, anomalySeverity }, red: { rate, errorRate, p95Latency } }, logSignals: { totalVolume, errorCount, bySeverity, topPatterns, sampleErrors }, traceSignals: { errorTraces, slowTraces }, contextSignals: { recentAnnotations, alertsActive }, suggestedHypotheses: [{ hypothesis, evidence, confidence, testWith: { tool, params } }], limitations }`.
+**Auto-discovery**: No datasource UID needed — auto-discovers Prometheus, Loki, and Tempo datasources. Loki and Tempo are optional (graceful degradation with limitations noted).
+**Follow-up**: Use `suggestedHypotheses[].testWith` for deep-dives with specific tools. Use `grafana_annotate` to mark findings. Use `grafana_check_alerts` to acknowledge investigated alerts.
+
 ### Security Monitoring
 
 **Honest limitations**: OpenClaw's auth middleware does not emit diagnostic events for failed authentication attempts (bad tokens, brute-force, rate-limiter lockouts). Gateway-level auth failures are invisible to Grafana Lens. The security-check tool monitors observable signals (webhook errors, cost spikes, prompt injection patterns, session anomalies) but cannot detect silent auth-layer attacks.
@@ -487,14 +505,37 @@ The 6 AI observability templates provide comprehensive OpenClaw monitoring with 
 3. `grafana_check_alerts` with `action: "delete_rule"`, `ruleUid` — permanently remove the rule
 
 **"Investigate a firing alert"** (triggered by "GRAFANA ALERTS" in prompt context)
-1. `grafana_check_alerts` — see full alert details (labels, values, timestamps)
+1. `grafana_investigate` with `focus` = alert UID or symptom, `timeWindow: "1h"` — parallel multi-signal triage (metrics, logs, traces, context)
 2. `grafana_check_alerts` with `action: "silence"`, `matchers` from alert's `commonLabels` — prevent repeat notifications
-3. `grafana_query` — run related PromQL to diagnose root cause
-4. `grafana_query_logs` — search logs around alert time for root cause
-5. `grafana_annotate` — mark findings on dashboard
-6. `grafana_check_alerts` with `action: "acknowledge"` — mark as investigated
-7. `grafana_check_alerts` with `action: "unsilence"`, `silenceId` — restore notifications
-8. Report findings to user
+3. Follow `suggestedHypotheses[].testWith` from investigate response — deep-dive with specific tools
+4. `grafana_query_logs` — search logs around alert time for root cause (statistics first: `count_over_time`, then samples)
+5. `grafana_query_traces` — inspect error/slow traces for span-level detail
+6. `grafana_annotate` — mark findings on dashboard
+7. `grafana_check_alerts` with `action: "acknowledge"` — mark as investigated
+8. `grafana_check_alerts` with `action: "unsilence"`, `silenceId` — restore notifications
+9. Report findings using Evidence Presentation Format (see sre-investigation.md §10)
+
+**"Is this metric anomalous?" / "Statistical assessment"**
+1. `grafana_explore_datasources` — get Prometheus UID
+2. `grafana_explain_metric` with `period: "24h"` — response includes `anomaly` (z-score, severity) and `seasonality` (vs 1d/7d ago)
+3. If `anomaly.severity` >= "significant": `grafana_query` with z-score PromQL for time series view
+4. `grafana_query` with `predict_linear(METRIC[6h], 3600)` — where is it heading?
+5. Interpret: report σ-level, compare with yesterday/last week, forecast trajectory
+
+**"Alert fatigue analysis — which alerts are noisy?"**
+1. `grafana_check_alerts` with `action: "analyze"` — fatigue report with always-firing, flapping, and healthy classifications
+2. For always-firing rules: suggest raising thresholds or adding `for:` duration
+3. For flapping rules: suggest adding hysteresis or widening threshold bands
+4. `grafana_check_alerts` with `action: "silence"` for rules being tuned
+
+**"Generate a postmortem for the last incident"**
+1. `grafana_investigate` with `focus` = incident symptom, `timeWindow: "6h"` — gather all evidence
+2. `grafana_check_alerts` (list) — find resolved alerts with timeline
+3. `grafana_annotate` (list, tags: ["investigation"]) — build event timeline
+4. `grafana_explain_metric` for key metrics — trend/stats for incident period
+5. `grafana_query_logs` — error patterns (statistics first)
+6. `grafana_query_traces` — error traces for root cause evidence
+7. Synthesize into blameless postmortem (see sre-investigation.md §9)
 
 **"Add an error rate panel to my API dashboard"**
 1. `grafana_search` with `query: "API"` — find the dashboard
@@ -642,3 +683,9 @@ For metric names, types, labels, and common PromQL — covering both `openclaw_*
 ## External Data
 
 For external data naming conventions and integration patterns, see [references/external-data.md](references/external-data.md).
+
+## SRE Investigation Patterns
+
+For 5-phase investigation methodology, anomaly detection PromQL, RED/USE method queries,
+LogQL investigation discipline, TraceQL debugging, SLI/SLO burn rates, cross-signal correlation,
+and composed investigation workflows — see [references/sre-investigation.md](references/sre-investigation.md).

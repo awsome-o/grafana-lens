@@ -1216,3 +1216,187 @@ describe("resolveBreakdowns", () => {
     ]);
   });
 });
+
+// ── Anomaly scoring & seasonality tests ─────────────────────────────
+
+describe("anomaly scoring and seasonality (24h period)", () => {
+  beforeEach(() => {
+    queryPrometheusMock.mockReset();
+    queryPrometheusRangeMock.mockReset();
+    getMetricMetadataMock.mockReset();
+  });
+
+  test("returns anomaly and seasonality for 24h gauge metric", async () => {
+    getMetricMetadataMock.mockResolvedValueOnce(makeMetadata("gauge", "Daily cost"));
+    // instant query
+    queryPrometheusMock.mockResolvedValueOnce(makeInstantResult("10.5"));
+    // range query
+    queryPrometheusRangeMock.mockResolvedValueOnce(
+      makeRangeResult([[1708157400, "8.0"], [1708200600, "9.0"], [1708243800, "10.5"]]),
+    );
+    // anomaly: avg_over_time(metric[7d])
+    queryPrometheusMock.mockResolvedValueOnce(makeInstantResult("5.0"));
+    // anomaly: stddev_over_time(metric[7d])
+    queryPrometheusMock.mockResolvedValueOnce(makeInstantResult("1.5"));
+    // seasonality: metric offset 1d
+    queryPrometheusMock.mockResolvedValueOnce(makeInstantResult("7.0"));
+    // seasonality: metric offset 7d
+    queryPrometheusMock.mockResolvedValueOnce(makeInstantResult("4.0"));
+
+    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const result = parse(await tool!.execute("anomaly-1", {
+      datasourceUid: "prom1",
+      expr: "test_metric",
+      period: "24h",
+    }));
+
+    // Anomaly: (9.167 - 5.0) / (1.5) ≈ 2.78 → significant
+    expect(result.anomaly).toBeDefined();
+    const anomaly = result.anomaly as Record<string, unknown>;
+    expect(anomaly.severity).toBe("significant");
+    expect(typeof anomaly.score).toBe("number");
+    expect((anomaly.score as number)).toBeGreaterThan(2);
+    expect((anomaly.score as number)).toBeLessThan(3);
+    expect(anomaly.interpretation).toContain("significant");
+
+    const baseline = anomaly.baseline as Record<string, unknown>;
+    expect(baseline.period).toBe("7d");
+
+    // Seasonality
+    expect(result.seasonality).toBeDefined();
+    const seasonality = result.seasonality as Record<string, unknown>;
+    const vs1d = seasonality.vs1dAgo as Record<string, unknown>;
+    const vs7d = seasonality.vs7dAgo as Record<string, unknown>;
+    expect(vs1d.value).toBe("7");
+    expect(vs1d.changePercent).toBe(50); // (10.5-7)/7*100 = 50%
+    expect(vs7d.value).toBe("4");
+    expect(vs7d.changePercent).toBe(162.5); // (10.5-4)/4*100 = 162.5%
+  });
+
+  test("anomaly not computed for 7d period", async () => {
+    getMetricMetadataMock.mockResolvedValueOnce(makeMetadata("gauge", "Daily cost"));
+    queryPrometheusMock.mockResolvedValueOnce(makeInstantResult("10.5"));
+    queryPrometheusRangeMock.mockResolvedValueOnce(
+      makeRangeResult([[1708157400, "8.0"], [1708243800, "10.5"]]),
+    );
+
+    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const result = parse(await tool!.execute("anomaly-2", {
+      datasourceUid: "prom1",
+      expr: "test_metric",
+      period: "7d",
+    }));
+
+    expect(result.anomaly).toBeUndefined();
+    expect(result.seasonality).toBeUndefined();
+    // Should not make anomaly queries for non-24h periods
+    expect(queryPrometheusMock).toHaveBeenCalledTimes(1); // only instant
+  });
+
+  test("anomaly not computed for complex PromQL expressions", async () => {
+    queryPrometheusMock.mockResolvedValueOnce(makeInstantResult("0.5"));
+    queryPrometheusRangeMock.mockResolvedValueOnce(
+      makeRangeResult([[1708157400, "0.3"], [1708243800, "0.5"]]),
+    );
+
+    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const result = parse(await tool!.execute("anomaly-3", {
+      datasourceUid: "prom1",
+      expr: "rate(http_requests_total[5m])",
+      period: "24h",
+    }));
+
+    expect(result.anomaly).toBeUndefined();
+    expect(result.seasonality).toBeUndefined();
+  });
+
+  test("anomaly scoring handles failed baseline queries gracefully", async () => {
+    getMetricMetadataMock.mockResolvedValueOnce(makeMetadata("gauge", "Daily cost"));
+    queryPrometheusMock.mockResolvedValueOnce(makeInstantResult("10.5"));
+    queryPrometheusRangeMock.mockResolvedValueOnce(
+      makeRangeResult([[1708157400, "8.0"], [1708243800, "10.5"]]),
+    );
+    // anomaly queries fail
+    queryPrometheusMock.mockRejectedValueOnce(new Error("query timeout"));
+    queryPrometheusMock.mockRejectedValueOnce(new Error("query timeout"));
+    // offset queries also fail
+    queryPrometheusMock.mockRejectedValueOnce(new Error("query timeout"));
+    queryPrometheusMock.mockRejectedValueOnce(new Error("query timeout"));
+
+    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const result = parse(await tool!.execute("anomaly-4", {
+      datasourceUid: "prom1",
+      expr: "test_metric",
+      period: "24h",
+    }));
+
+    // Should still succeed — anomaly is optional
+    expect(result.status).toBe("success");
+    expect(result.anomaly).toBeUndefined();
+    // Seasonality still returns structure (with N/A values) when offset queries fail
+    // but instant value is available — this is correct behavior
+    const seasonality = result.seasonality as Record<string, unknown> | undefined;
+    if (seasonality) {
+      const vs1d = seasonality.vs1dAgo as Record<string, unknown>;
+      const vs7d = seasonality.vs7dAgo as Record<string, unknown>;
+      expect(vs1d.value).toBe("N/A");
+      expect(vs7d.value).toBe("N/A");
+    }
+  });
+
+  test("critical anomaly (>3σ) detected correctly", async () => {
+    getMetricMetadataMock.mockResolvedValueOnce(makeMetadata("gauge", "Cost"));
+    queryPrometheusMock.mockResolvedValueOnce(makeInstantResult("100"));
+    queryPrometheusRangeMock.mockResolvedValueOnce(
+      makeRangeResult([[1708157400, "90"], [1708243800, "100"]]),
+    );
+    // baseline avg = 20, stddev = 5 → z-score = (95-20)/5 = 15 → critical
+    queryPrometheusMock.mockResolvedValueOnce(makeInstantResult("20"));
+    queryPrometheusMock.mockResolvedValueOnce(makeInstantResult("5"));
+    queryPrometheusMock.mockResolvedValueOnce(makeInstantResult("25"));
+    queryPrometheusMock.mockResolvedValueOnce(makeInstantResult("22"));
+
+    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const result = parse(await tool!.execute("anomaly-5", {
+      datasourceUid: "prom1",
+      expr: "test_metric",
+      period: "24h",
+    }));
+
+    const anomaly = result.anomaly as Record<string, unknown>;
+    expect(anomaly.severity).toBe("critical");
+    expect((anomaly.score as number)).toBeGreaterThan(3);
+    expect(anomaly.interpretation).toContain("critical");
+  });
+
+  test("seasonality shows N/A when offset query returns empty", async () => {
+    getMetricMetadataMock.mockResolvedValueOnce(makeMetadata("gauge", "Metric"));
+    queryPrometheusMock.mockResolvedValueOnce(makeInstantResult("50"));
+    queryPrometheusRangeMock.mockResolvedValueOnce(
+      makeRangeResult([[1708157400, "45"], [1708243800, "50"]]),
+    );
+    // anomaly queries succeed
+    queryPrometheusMock.mockResolvedValueOnce(makeInstantResult("48"));
+    queryPrometheusMock.mockResolvedValueOnce(makeInstantResult("3"));
+    // offset 1d returns empty
+    queryPrometheusMock.mockResolvedValueOnce(makeEmptyResult());
+    // offset 7d returns empty
+    queryPrometheusMock.mockResolvedValueOnce(makeEmptyResult());
+
+    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const result = parse(await tool!.execute("anomaly-6", {
+      datasourceUid: "prom1",
+      expr: "test_metric",
+      period: "24h",
+    }));
+
+    const seasonality = result.seasonality as Record<string, unknown>;
+    expect(seasonality).toBeDefined();
+    const vs1d = seasonality.vs1dAgo as Record<string, unknown>;
+    const vs7d = seasonality.vs7dAgo as Record<string, unknown>;
+    expect(vs1d.value).toBe("N/A");
+    expect(vs1d.changePercent).toBeNull();
+    expect(vs7d.value).toBe("N/A");
+    expect(vs7d.changePercent).toBeNull();
+  });
+});

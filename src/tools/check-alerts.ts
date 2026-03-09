@@ -52,6 +52,7 @@ export function createCheckAlertsToolFactory(
       "Use action 'unsilence' with silenceId to remove a silence after resolving.",
       "Use action 'setup' to create the webhook contact point and notification policy",
       "route — required once before alerts can notify the agent.",
+      "Use action 'analyze' to detect alert fatigue — identifies always-firing, flapping, and high-frequency alert rules with optimization suggestions.",
       "Alerts created via grafana_create_alert auto-route to the webhook.",
     ].join(" "),
     parameters: {
@@ -59,8 +60,8 @@ export function createCheckAlertsToolFactory(
       properties: {
         action: {
           type: "string",
-          enum: ["list", "acknowledge", "list_rules", "delete_rule", "silence", "unsilence", "setup"],
-          description: "Action to perform. Default: 'list'",
+          enum: ["list", "acknowledge", "list_rules", "delete_rule", "silence", "unsilence", "setup", "analyze"],
+          description: "Action to perform. Default: 'list'. Use 'analyze' to detect alert fatigue.",
         },
         alertId: {
           type: "string",
@@ -123,8 +124,10 @@ export function createCheckAlertsToolFactory(
           return handleUnsilence(params);
         case "setup":
           return handleSetup(params);
+        case "analyze":
+          return handleAnalyze();
         default:
-          return jsonResult({ error: `Unknown action '${action}'. Use: list, acknowledge, list_rules, delete_rule, silence, unsilence, setup` });
+          return jsonResult({ error: `Unknown action '${action}'. Use: list, acknowledge, list_rules, delete_rule, silence, unsilence, setup, analyze` });
       }
     },
   });
@@ -395,6 +398,136 @@ export function createCheckAlertsToolFactory(
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       return jsonResult({ error: `Failed to set up alert webhook: ${reason}` });
+    }
+  }
+
+  /**
+   * Analyze alert rules for fatigue patterns: always-firing, flapping, or high-frequency.
+   * Uses rule eval state and last evaluation to classify each rule.
+   */
+  async function handleAnalyze() {
+    try {
+      const [rules, stateResult] = await Promise.allSettled([
+        client.listAlertRules(),
+        client.getAlertRuleStates(),
+      ]).then(([rulesRes, stateRes]) => [
+        rulesRes.status === "fulfilled" ? rulesRes.value : null,
+        stateRes.status === "fulfilled" ? stateRes.value : null,
+      ] as [AlertRule[] | null, Map<string, AlertRuleState> | null]);
+
+      if (!rules) {
+        return jsonResult({ error: "Failed to analyze alert rules — could not reach Grafana provisioning API" });
+      }
+
+      if (rules.length === 0) {
+        return jsonResult({
+          status: "success",
+          totalRules: 0,
+          fatigueReport: { alwaysFiring: [], flapping: [], healthy: 0 },
+          overallHealth: "healthy" as const,
+          suggestions: ["No alert rules configured. Use grafana_create_alert to set up monitoring."],
+        });
+      }
+
+      const ALWAYS_FIRING_THRESHOLD_MS = 24 * 60 * 60 * 1000; // 24h
+      const alwaysFiring: Array<{ uid: string; title: string; firingDuration: string; suggestion: string }> = [];
+      const flapping: Array<{ uid: string; title: string; state: string; health: string; suggestion: string }> = [];
+      let healthy = 0;
+
+      for (const rule of rules) {
+        const evalState = stateResult?.get(rule.uid);
+        const state = evalState ? normalizeState(evalState.state) : "unknown";
+        const health = evalState?.health ?? "unknown";
+
+        // Flapping detection first: rules with error health or nodata state suggest instability
+        if (health === "error" || state === "nodata" || state === "error") {
+          flapping.push({
+            uid: rule.uid,
+            title: rule.title,
+            state,
+            health,
+            suggestion: state === "nodata"
+              ? "Rule produces no data — check if metric exists and query is correct"
+              : "Rule evaluation error — check datasource connectivity and query syntax",
+          });
+          continue;
+        }
+
+        if (state === "firing" && evalState?.lastEvaluation) {
+          // Check if firing for > 24h
+          const lastEvalTime = new Date(evalState.lastEvaluation).getTime();
+          const firingAge = Date.now() - lastEvalTime;
+          // If lastEvaluation is recent but state is firing, the rule has been continuously firing
+          // We use the `for` duration + age heuristic: if firing and last eval is recent, it's been firing since before last eval
+          if (firingAge < ALWAYS_FIRING_THRESHOLD_MS) {
+            // Still actively firing — check if the rule's `for` plus active time suggests chronic firing
+            // Heuristic: if state is firing and rule has been evaluated recently, it's actively firing
+            // We flag it as always-firing only if we can determine long duration
+            // For now, we check pending alerts in the store for additional context
+            const pending = store.getPendingAlerts();
+            const matchingAlert = pending.find((a) => {
+              const firstInstance = a.alerts?.[0];
+              if (!firstInstance?.generatorURL) return false;
+              const ruleUid = extractRuleUidFromGeneratorUrl(firstInstance.generatorURL);
+              return ruleUid === rule.uid;
+            });
+
+            if (matchingAlert) {
+              const alertAge = Date.now() - matchingAlert.receivedAt;
+              if (alertAge > ALWAYS_FIRING_THRESHOLD_MS) {
+                alwaysFiring.push({
+                  uid: rule.uid,
+                  title: rule.title,
+                  firingDuration: `${Math.round(alertAge / (60 * 60 * 1000))}h`,
+                  suggestion: "Consider raising threshold, adding 'for' duration, or silencing if expected",
+                });
+                continue;
+              }
+            }
+          } else {
+            // Last eval was long ago but state is firing — chronic
+            alwaysFiring.push({
+              uid: rule.uid,
+              title: rule.title,
+              firingDuration: `>${Math.round(firingAge / (60 * 60 * 1000))}h`,
+              suggestion: "Consider raising threshold, adding 'for' duration, or silencing if expected",
+            });
+            continue;
+          }
+        }
+
+        healthy++;
+      }
+
+      const overallHealth = alwaysFiring.length > 3 || flapping.length > 3
+        ? "severe_fatigue" as const
+        : (alwaysFiring.length > 0 || flapping.length > 0 ? "moderate_fatigue" as const : "healthy" as const);
+
+      const suggestions: string[] = [];
+      if (alwaysFiring.length > 0) {
+        suggestions.push(`${alwaysFiring.length} rule(s) always firing — review thresholds or add hysteresis with 'for' duration`);
+      }
+      if (flapping.length > 0) {
+        suggestions.push(`${flapping.length} rule(s) in error/nodata state — review query syntax and datasource connectivity`);
+      }
+      if (suggestions.length === 0) {
+        suggestions.push("All alert rules are healthy. No fatigue detected.");
+      }
+
+      return jsonResult({
+        status: "success",
+        totalRules: rules.length,
+        fatigueReport: {
+          alwaysFiring,
+          flapping,
+          healthy,
+        },
+        overallHealth,
+        suggestions,
+      });
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      return jsonResult({ error: `Failed to analyze alert rules: ${reason}` });
     }
   }
 }

@@ -4,7 +4,7 @@
 
 > **Note:** This is a community-built OpenClaw plugin, not an official Grafana Labs product. Grafana, Loki, Tempo, and Prometheus are trademarks of Grafana Labs.
 
-[OpenClaw](https://openclaw.com) is an open-source AI agent platform. Grafana Lens extends it with full Grafana integration — 16 composable tools that let your agent query metrics and logs, trace distributed requests, create dashboards, set up alerts, render charts, run security audits, and push custom data — all through natural language conversation.
+[OpenClaw](https://openclaw.com) is an open-source AI agent platform. Grafana Lens extends it with full Grafana integration — 17 composable tools that let your agent query metrics and logs, trace distributed requests, create dashboards, set up alerts, render charts, run security audits, investigate incidents, and push custom data — all through natural language conversation.
 
 ---
 
@@ -17,13 +17,15 @@
 | **"Am I being prompt-injected?"** | 12-pattern prompt injection detection with security dashboard and threat-level reporting |
 | **"I need observability but don't want another SaaS"** | Fully self-hosted, open source, OTLP-native — runs on a free local Grafana stack |
 | **"I can't debug multi-step agent sessions"** | Hierarchical traces: session → LLM call → tool execution, with log-to-trace correlation |
+| **"My alert fired — now what?"** | `grafana_investigate` gathers metrics, logs, traces in parallel and generates hypotheses with specific tool+params for follow-up |
 | **"I want to track my own data in Grafana"** | Push any custom metrics (fitness, calendar, git, finance) from conversation |
 
 ---
 
 ## Key Features
 
-- **16 Composable Agent Tools** — Query PromQL/LogQL/TraceQL, create dashboards, set alerts, share panel images, run security checks, push custom metrics, and more
+- **17 Composable Agent Tools** — Query PromQL/LogQL/TraceQL, create dashboards, set alerts, share panel images, run security checks, investigate incidents, push custom metrics, and more
+- **SRE Investigation** — Multi-signal triage (`grafana_investigate`), anomaly scoring with z-score against 7-day baselines, seasonality comparison, and alert fatigue detection
 - **Full OTLP Observability** — Metrics → Prometheus, Logs → Loki, Traces → Tempo. Push-based with no scraping — data is available immediately
 - **Security Monitoring** — 6-check threat assessment covering prompt injection, cost anomalies, tool loops, session enumeration, webhook errors, and stuck sessions
 - **12 Pre-Built Dashboard Templates** — From LLM Command Center and Cost Intelligence to Security Overview and SRE Operations
@@ -221,6 +223,9 @@ Just talk to your agent in natural language:
 - **"What does openclaw_lens_daily_cost_usd mean? Why did it spike?"** — Explains the metric with current value, trend, stats, and drill-down suggestions
 - **"Find slow traces in the last hour"** — Searches Tempo traces by duration, status, or span attributes using TraceQL
 - **"Show me the trace for session abc123"** — Retrieves full distributed trace with hierarchical span details
+- **"Investigate this alert"** — Gathers metrics, logs, traces, and annotations in parallel and suggests hypotheses with specific follow-up tool+params
+- **"Is this metric anomalous?"** — Shows z-score against 7-day baseline, seasonality comparison (vs 1 day ago, vs 7 days ago), and severity rating
+- **"Which alerts are noisy?"** — Detects always-firing, flapping, and error/nodata rules with optimization suggestions
 - **Create and customize your own unique dashboards** — Combine any data from Prometheus, Loki, or custom metrics to build personalized monitoring views
 
 ### For Grafana Power Users — Let an AI Agent Manage Your Grafana
@@ -238,7 +243,7 @@ Just talk to your agent in natural language:
 
 ## Agent Tools
 
-All 16 tools are registered automatically when the plugin loads. The agent decides when to use each tool based on your request.
+All 17 tools are registered automatically when the plugin loads. The agent decides when to use each tool based on your request.
 
 | Tool | Description | Example Use |
 |------|-------------|-------------|
@@ -258,6 +263,7 @@ All 16 tools are registered automatically when the plugin loads. The agent decid
 | `grafana_explain_metric` | Get metric context: current value, trend, stats, metadata | "Why did my bill spike?" |
 | `grafana_security_check` | Run 6 parallel security checks → threat level report | "Am I being attacked?" |
 | `grafana_query_traces` | Run TraceQL queries against Tempo; search traces or get full trace by ID | "Find slow traces" / "Show trace for session X" |
+| `grafana_investigate` | Multi-signal investigation triage with hypothesis generation | "Investigate this alert" / "What's wrong?" / "Root cause" |
 
 ---
 
@@ -330,6 +336,39 @@ Grafana Lens automatically collects security-relevant metrics from OpenClaw's li
 
 ---
 
+## SRE Investigation
+
+Grafana Lens includes purpose-built investigation capabilities for diagnosing alerts, anomalies, and outages.
+
+### Multi-Signal Triage (`grafana_investigate`)
+
+Use as the **first step** for any "what's wrong?" question. The tool:
+
+1. **Auto-discovers** Prometheus, Loki, and Tempo datasources (graceful degradation if Loki/Tempo unavailable)
+2. **Gathers signals in parallel** using `Promise.allSettled`:
+   - **Metrics** — Focus metric current value + trend, anomaly z-score, RED signals (rate, error rate, p95 latency)
+   - **Logs** — Volume, severity breakdown, top error patterns, sample errors
+   - **Traces** — Error traces, slow traces (>10s)
+   - **Context** — Recent annotations, active alerts
+3. **Generates hypotheses** — Each includes an `evidence` summary, `confidence` level, and a `testWith` field with the exact tool name and parameters for follow-up
+
+### Anomaly Scoring (`grafana_explain_metric`)
+
+For 24-hour period queries on plain metric names, `grafana_explain_metric` now includes:
+
+- **Anomaly z-score** — Current value compared against the 7-day baseline (avg ± stddev). Severity levels: `normal` (<1.5σ), `mild` (1.5–2σ), `significant` (2–3σ), `critical` (>3σ)
+- **Seasonality comparison** — Value vs 1 day ago and vs 7 days ago, with change percentages
+
+### Alert Fatigue Detection (`grafana_check_alerts`)
+
+Use `action: "analyze"` to audit alert rule health:
+
+- **Always-firing** — Rules firing >24 hours, suggesting thresholds need adjustment
+- **Flapping** — Rules in error/nodata state, indicating query or datasource issues
+- **Overall health** — `healthy`, `moderate_fatigue`, or `severe_fatigue` with specific suggestions
+
+---
+
 ## Custom Metrics (Data Observatory)
 
 Push any external data into Grafana via the `grafana_push_metrics` tool — no code required, just ask your agent:
@@ -379,7 +418,7 @@ Grafana Lens is a **self-contained OpenClaw plugin** — all Grafana interaction
 │                                                 │
 │  ┌─────────────────────────────────────────┐    │
 │  │  Grafana Lens Plugin                    │    │
-│  │  • 16 Agent Tools                       │    │
+│  │  • 17 Agent Tools                       │    │
 │  │  • MetricsCollector Service             │    │
 │  │  • AlertWebhook Service                 │    │
 │  │  • LifecycleTelemetry (16 hooks)        │    │
@@ -415,7 +454,7 @@ Grafana Lens is a **self-contained OpenClaw plugin** — all Grafana interaction
 
 | Decision | Choice | Why |
 |----------|--------|-----|
-| Everything is tools | 16 composable tools, no background automation | Agent decides when to act; Grafana handles scheduled work |
+| Everything is tools | 17 composable tools, no background automation | Agent decides when to act; Grafana handles scheduled work |
 | Self-contained | Bundled GrafanaClient (REST API) | No external MCP servers or dependencies |
 | OTLP push | Push-based metrics, logs, traces | No scraping delay — data available immediately |
 | General-purpose | Works with ANY Grafana datasource | Not limited to `openclaw_lens_*` metrics |
@@ -585,7 +624,7 @@ grafana-lens/
 │   ├── config.ts                     # Config parsing and validation
 │   ├── grafana-client.ts             # Bundled Grafana REST API client
 │   ├── metric-definitions.ts         # Shared metric registry
-│   ├── tools/                        # 16 agent tools
+│   ├── tools/                        # 17 agent tools
 │   │   ├── query.ts                  # grafana_query
 │   │   ├── query-logs.ts             # grafana_query_logs
 │   │   ├── create-dashboard.ts       # grafana_create_dashboard
@@ -601,7 +640,8 @@ grafana-lens/
 │   │   ├── push-metrics.ts           # grafana_push_metrics
 │   │   ├── explain-metric.ts         # grafana_explain_metric
 │   │   ├── security-check.ts         # grafana_security_check
-│   │   └── query-traces.ts           # grafana_query_traces
+│   │   ├── query-traces.ts           # grafana_query_traces
+│   │   └── investigate.ts            # grafana_investigate
 │   ├── services/
 │   │   ├── metrics-collector.ts      # Diagnostic event → OTLP push
 │   │   ├── alert-webhook.ts          # Grafana alert webhook handler

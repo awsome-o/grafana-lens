@@ -185,6 +185,7 @@ export function createExplainMetricToolFactory(config: ValidatedGrafanaLensConfi
       "Returns enriched data for the agent to interpret — the agent provides the narrative.",
       "Counter-aware: auto-detects counter metrics and shows rate of change (not raw cumulative values) for trends.",
       "Response includes `metricType` (counter/gauge/histogram/summary), `trendQuery` (actual PromQL used for trend), `suggestedQueries` (drill-down PromQL by label), and `suggestedBreakdowns` (label names for decomposition — always available for known OpenClaw metrics, even with no data).",
+      "Includes anomaly scoring (sigma-based z-score against 7-day baseline) and seasonality comparison (vs 1 day ago, vs 7 days ago) for 24h period queries. Returns `anomaly` (score, severity: normal/mild/significant/critical, baseline) and `seasonality` (vs1dAgo, vs7dAgo with change percent).",
       "Period comparison: set `compareWith: 'previous'` to compare the current period with the immediately preceding one (e.g., this week vs. last week). Returns a `comparison` object with previous period stats and change (absolute, percentage, direction). Eliminates manual multi-query workflows for period-over-period analysis.",
       "Requires a datasourceUid — use grafana_explore_datasources to find it.",
       "Supports any PromQL expression. Metadata only available for plain metric names.",
@@ -348,6 +349,83 @@ export function createExplainMetricToolFactory(config: ValidatedGrafanaLensConfi
         }
       }
 
+      // ── Anomaly scoring + seasonality (24h period only, plain metrics) ──
+      let anomaly: {
+        score: number;
+        severity: "normal" | "mild" | "significant" | "critical";
+        baseline: { avg: string; stddev: string; period: "7d" };
+        interpretation: string;
+      } | undefined;
+
+      let seasonality: {
+        vs1dAgo: { value: string; changePercent: number | null };
+        vs7dAgo: { value: string; changePercent: number | null };
+      } | undefined;
+
+      if (period === "24h" && isPlainMetric && stats) {
+        // Run anomaly + seasonality queries in parallel
+        const anomalyExpr = trendQuery; // Use rate() for counters, raw for gauges
+        const [baselineAvgResult, baselineStddevResult, offset1dResult, offset7dResult] = await Promise.allSettled([
+          client.queryPrometheus(datasourceUid, `avg_over_time(${anomalyExpr}[7d])`),
+          client.queryPrometheus(datasourceUid, `stddev_over_time(${anomalyExpr}[7d])`),
+          client.queryPrometheus(datasourceUid, `${expr} offset 1d`),
+          client.queryPrometheus(datasourceUid, `${expr} offset 7d`),
+        ]);
+
+        // ── Anomaly z-score ──
+        if (baselineAvgResult.status === "fulfilled" && baselineStddevResult.status === "fulfilled"
+            && baselineAvgResult.value?.data?.result && baselineStddevResult.value?.data?.result) {
+          const avgVal = baselineAvgResult.value.data.result[0]?.value[1];
+          const stddevVal = baselineStddevResult.value.data.result[0]?.value[1];
+          if (avgVal && stddevVal) {
+            const baselineAvg = parseFloat(avgVal);
+            const baselineStddev = parseFloat(stddevVal);
+            const currentAvg = parseFloat(stats.avg);
+            const epsilon = 1e-10;
+            const zScore = Math.abs((currentAvg - baselineAvg) / (baselineStddev + epsilon));
+            const roundedZ = parseFloat(zScore.toFixed(2));
+
+            let severity: "normal" | "mild" | "significant" | "critical";
+            if (roundedZ >= 3) severity = "critical";
+            else if (roundedZ >= 2) severity = "significant";
+            else if (roundedZ >= 1.5) severity = "mild";
+            else severity = "normal";
+
+            const direction = currentAvg > baselineAvg ? "above" : "below";
+            anomaly = {
+              score: roundedZ,
+              severity,
+              baseline: { avg: String(sig4(baselineAvg)), stddev: String(sig4(baselineStddev)), period: "7d" },
+              interpretation: `${roundedZ}σ ${direction} 7-day baseline — ${severity} anomaly`,
+            };
+          }
+        }
+
+        // ── Seasonality comparison ──
+        const currentVal = instantResult.status === "fulfilled"
+          ? parseFloat(instantResult.value.data.result[0]?.value[1] ?? "NaN")
+          : NaN;
+
+        if (!isNaN(currentVal)) {
+          const vs1d = offset1dResult.status === "fulfilled" && offset1dResult.value?.data?.result
+            ? parseFloat(offset1dResult.value.data.result[0]?.value[1] ?? "NaN")
+            : NaN;
+          const vs7d = offset7dResult.status === "fulfilled" && offset7dResult.value?.data?.result
+            ? parseFloat(offset7dResult.value.data.result[0]?.value[1] ?? "NaN")
+            : NaN;
+
+          const computeChange = (old: number) => {
+            if (isNaN(old) || old === 0) return null;
+            return parseFloat((((currentVal - old) / old) * 100).toFixed(1));
+          };
+
+          seasonality = {
+            vs1dAgo: { value: isNaN(vs1d) ? "N/A" : String(sig4(vs1d)), changePercent: computeChange(vs1d) },
+            vs7dAgo: { value: isNaN(vs7d) ? "N/A" : String(sig4(vs7d)), changePercent: computeChange(vs7d) },
+          };
+        }
+      }
+
       // ── Extract label names for drill-down suggestions ─────────────
       const dynamicLabels = isPlainMetric && instantResult.status === "fulfilled"
         ? extractLabelNames(instantResult.value.data.result)
@@ -381,6 +459,8 @@ export function createExplainMetricToolFactory(config: ValidatedGrafanaLensConfi
       if (trend) result.trend = trend;
       if (stats) result.stats = stats;
       if (comparison) result.comparison = comparison;
+      if (anomaly) result.anomaly = anomaly;
+      if (seasonality) result.seasonality = seasonality;
       if (metadata) result.metadata = metadata;
       if (suggestedQueries.length > 0) result.suggestedQueries = suggestedQueries;
       if (suggestedBreakdowns.length > 0) result.suggestedBreakdowns = suggestedBreakdowns;

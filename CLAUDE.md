@@ -24,7 +24,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Grafana Lens** is an OpenClaw extension that gives the AI agent **full, native access to Grafana** — for data visualization, monitoring, alerting, and delivery across 15+ messaging channels. Product spec: `/Users/mangquanshi/workspace/grafana/grafana-lens.md`.
 
-**Core philosophy: Everything is an agent tool.** 16 composable tools (query, query logs, query traces, create dashboard, update dashboard, alert, annotate, share, explore datasources, list metrics, search, get dashboard, check alerts, push metrics, explain metric, security check). No background automation — agent decides when to use Grafana; Grafana's own engines handle scheduled evaluation and rendering. Works with ANY Grafana datasource, not just `openclaw_lens_*` metrics.
+**Core philosophy: Everything is an agent tool.** 17 composable tools (query, query logs, query traces, create dashboard, update dashboard, alert, annotate, share, explore datasources, list metrics, search, get dashboard, check alerts, push metrics, explain metric, security check, investigate). No background automation — agent decides when to use Grafana; Grafana's own engines handle scheduled evaluation and rendering. Works with ANY Grafana datasource, not just `openclaw_lens_*` metrics.
 
 ---
 
@@ -75,7 +75,7 @@ All Grafana interaction is handled by the bundled `GrafanaClient` — no externa
                     │   grafana-lens/ (THIS REPO)            │
                     │  • GrafanaClient (full REST API)       │
                     │  • MetricsCollector → OTLP push        │
-                    │  • 16 agent tools + 10 templates        │
+                    │  • 17 agent tools + 10 templates        │
                     │  • Works with ANY Grafana datasource   │
                     └──────────────┬────────────────────────┘
                                    │ OTLP HTTP push
@@ -327,7 +327,7 @@ Verified conventions from openclaw and diagnostics-otel codebases:
 
 ## Current Implementation State
 
-All 16 tools in `src/tools/`, 10 templates in `src/templates/`, tests alongside each module. Entry: `index.ts`. Config: `src/config.ts`. Client: `src/grafana-client.ts`. Service: `src/services/metrics-collector.ts`. OTel provider: `src/services/otel-metrics.ts`. Custom metrics: `src/services/custom-metrics-store.ts`. Skill: `skills/SKILL.md` + `skills/references/`.
+All 17 tools in `src/tools/`, 10 templates in `src/templates/`, tests alongside each module. Entry: `index.ts`. Config: `src/config.ts`. Client: `src/grafana-client.ts`. Service: `src/services/metrics-collector.ts`. OTel provider: `src/services/otel-metrics.ts`. Custom metrics: `src/services/custom-metrics-store.ts`. Skill: `skills/SKILL.md` + `skills/references/`.
 
 ### Metrics — Two Sources
 
@@ -506,3 +506,4 @@ cd ~/workspace/docker-otel-lgtm && docker run -p 3000:3000 -p 4317:4317 -p 4318:
 | `grafana_explain_metric` | Get metric context: current value, trend, stats, metadata | "What does this metric mean?" / "Why did my bill spike?" |
 | `grafana_security_check` | Run 6 parallel security checks, return threat assessment (green/yellow/red) | "Am I being attacked?" / "Security status" / "Security audit" |
 | `grafana_query_traces` | Run TraceQL queries against Tempo — search traces or get full trace by ID | "Find slow traces" / "Show trace for session X" / "Debug distributed spans" |
+| `grafana_investigate` | Multi-signal investigation triage — metrics, logs, traces, context in parallel with hypothesis generation | "Investigate this alert" / "What's wrong?" / "Triage" / "Root cause" |
