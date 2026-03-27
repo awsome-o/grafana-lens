@@ -17,6 +17,7 @@ vi.mock("../grafana-client.js", () => ({
     queryLokiRange: mockQueryLokiRange,
     searchTraces: mockSearchTraces,
     getAnnotations: mockGetAnnotations,
+    getUrl: () => "http://localhost:3000",
   })),
 }));
 
@@ -25,14 +26,22 @@ vi.mock("../grafana-client.js", () => ({
 import { createInvestigateToolFactory } from "./investigate.js";
 import { createAlertStore, type GrafanaAlertNotification } from "../services/alert-webhook.js";
 import type { ValidatedGrafanaLensConfig } from "../config.js";
+import { GrafanaClientRegistry } from "../grafana-client-registry.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function makeConfig(): ValidatedGrafanaLensConfig {
   return {
-    grafana: { url: "http://localhost:3000", apiKey: "test-key" },
+    grafana: {
+      instances: { default: { url: "http://localhost:3000", apiKey: "test-key" } },
+      defaultInstance: "default",
+    },
     proactive: { enabled: true },
   } as ValidatedGrafanaLensConfig;
+}
+
+function makeRegistry(): GrafanaClientRegistry {
+  return new GrafanaClientRegistry(makeConfig());
 }
 
 function getTextContent(result: { content: Array<{ type: string; text?: string }> }): string {
@@ -185,7 +194,7 @@ describe("grafana_investigate tool", () => {
       ]),
     );
 
-    const tool = createInvestigateToolFactory(makeConfig(), store)({} as never);
+    const tool = createInvestigateToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-1", { focus: "openclaw_lens_daily_cost_usd" });
     const parsed = JSON.parse(getTextContent(result));
 
@@ -227,7 +236,7 @@ describe("grafana_investigate tool", () => {
       .mockResolvedValueOnce(lokiResult([["1708243800000000000", "15"]], { level: "ERROR" })) // severity
       .mockResolvedValueOnce(lokiResult([["1708243800000000000", "Error: high error rate detected"]])); // samples
 
-    const tool = createInvestigateToolFactory(makeConfig(), store)({} as never);
+    const tool = createInvestigateToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-2", { focus: "high error rate" });
     const parsed = JSON.parse(getTextContent(result));
 
@@ -267,7 +276,7 @@ describe("grafana_investigate tool", () => {
       promRange([[1708243800, "2.34"]]),
     );
 
-    const tool = createInvestigateToolFactory(makeConfig(), store)({} as never);
+    const tool = createInvestigateToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-3", { focus: "openclaw_lens_daily_cost_usd" });
     const parsed = JSON.parse(getTextContent(result));
 
@@ -291,7 +300,7 @@ describe("grafana_investigate tool", () => {
       { id: 2, uid: "loki-1", name: "Loki", type: "loki", url: "", isDefault: false, access: "proxy" },
     ]);
 
-    const tool = createInvestigateToolFactory(makeConfig(), store)({} as never);
+    const tool = createInvestigateToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-4", { focus: "openclaw_lens_daily_cost_usd" });
     const parsed = JSON.parse(getTextContent(result));
 
@@ -320,7 +329,7 @@ describe("grafana_investigate tool", () => {
       ]))
       .mockResolvedValueOnce(tempoTraces([]));
 
-    const tool = createInvestigateToolFactory(makeConfig(), store)({} as never);
+    const tool = createInvestigateToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-5", { focus: "high error rate" });
     const parsed = JSON.parse(getTextContent(result));
 
@@ -352,7 +361,7 @@ describe("grafana_investigate tool", () => {
       .mockResolvedValueOnce(promInstant("0.15"))   // RED: error rate (15% — above 1% threshold)
       .mockResolvedValueOnce(promInstant("3.2"));   // RED: p95
 
-    const tool = createInvestigateToolFactory(makeConfig(), store)({} as never);
+    const tool = createInvestigateToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-6", { focus: "high error rate" });
     const parsed = JSON.parse(getTextContent(result));
 
@@ -386,7 +395,7 @@ describe("grafana_investigate tool", () => {
       ]),
     );
 
-    const tool = createInvestigateToolFactory(makeConfig(), store)({} as never);
+    const tool = createInvestigateToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-7", { focus: "openclaw_lens_daily_cost_usd" });
     const parsed = JSON.parse(getTextContent(result));
 
@@ -421,7 +430,7 @@ describe("grafana_investigate tool", () => {
       )
       .mockResolvedValueOnce(tempoTraces([])); // slow traces
 
-    const tool = createInvestigateToolFactory(makeConfig(), store)({} as never);
+    const tool = createInvestigateToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-8", { focus: "request failures" });
     const parsed = JSON.parse(getTextContent(result));
 
@@ -467,7 +476,7 @@ describe("grafana_investigate tool", () => {
       },
     ]);
 
-    const tool = createInvestigateToolFactory(makeConfig(), store)({} as never);
+    const tool = createInvestigateToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-9", { focus: "why are errors increasing" });
     const parsed = JSON.parse(getTextContent(result));
 
@@ -488,7 +497,7 @@ describe("grafana_investigate tool", () => {
   // ── 10. Time window validation ───────────────────────────────────
 
   test("invalid time window returns error", async () => {
-    const tool = createInvestigateToolFactory(makeConfig(), store)({} as never);
+    const tool = createInvestigateToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-10", {
       focus: "openclaw_lens_daily_cost_usd",
       timeWindow: "30m",
@@ -511,7 +520,7 @@ describe("grafana_investigate tool", () => {
     mockQueryPrometheus.mockResolvedValue(promInstant("1.0"));
     mockQueryPrometheusRange.mockResolvedValue(promRange([[1708243800, "1.0"]]));
 
-    const tool = createInvestigateToolFactory(makeConfig(), store)({} as never);
+    const tool = createInvestigateToolFactory(makeRegistry(), store)({} as never);
 
     for (const tw of ["1h", "6h", "24h"]) {
       mockQueryPrometheus.mockClear();
@@ -540,7 +549,7 @@ describe("grafana_investigate tool", () => {
     mockQueryPrometheus.mockResolvedValue(promInstant("1.0"));
     mockQueryPrometheusRange.mockResolvedValue(promRange([[1708243800, "1.0"]]));
 
-    const tool = createInvestigateToolFactory(makeConfig(), store)({} as never);
+    const tool = createInvestigateToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-default-tw", { focus: "openclaw_lens_daily_cost_usd" });
     const parsed = JSON.parse(getTextContent(result));
 
@@ -565,7 +574,7 @@ describe("grafana_investigate tool", () => {
     mockSearchTraces.mockResolvedValue(tempoTraces([]));
     mockGetAnnotations.mockResolvedValue([]);
 
-    const tool = createInvestigateToolFactory(makeConfig(), store)({} as never);
+    const tool = createInvestigateToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-fallback", { focus: "openclaw_lens_daily_cost_usd" });
     const parsed = JSON.parse(getTextContent(result));
 
@@ -583,7 +592,7 @@ describe("grafana_investigate tool", () => {
     mockQueryPrometheus.mockResolvedValue(promInstant("1.0"));
     mockQueryPrometheusRange.mockResolvedValue(promRange([[1708243800, "1.0"]]));
 
-    const tool = createInvestigateToolFactory(makeConfig(), store)({} as never);
+    const tool = createInvestigateToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-tw-fields", { focus: "openclaw_lens_daily_cost_usd" });
     const parsed = JSON.parse(getTextContent(result));
 
@@ -609,7 +618,7 @@ describe("grafana_investigate tool", () => {
       )
       .mockResolvedValueOnce(tempoTraces([]));
 
-    const tool = createInvestigateToolFactory(makeConfig(), store)({} as never);
+    const tool = createInvestigateToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-shape", { focus: "error investigation" });
     const parsed = JSON.parse(getTextContent(result));
 
@@ -635,7 +644,7 @@ describe("grafana_investigate tool", () => {
       .mockResolvedValueOnce(lokiResult([["1708243800000000000", "5"]], { level: "ERROR" })) // severity
       .mockResolvedValueOnce(lokiResult([["1708243800000000000", longLine]])); // samples
 
-    const tool = createInvestigateToolFactory(makeConfig(), store)({} as never);
+    const tool = createInvestigateToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-truncate", { focus: "some error" });
     const parsed = JSON.parse(getTextContent(result));
 
@@ -654,7 +663,7 @@ describe("grafana_investigate tool", () => {
     mockQueryLokiRange.mockResolvedValue(lokiEmpty());
     mockSearchTraces.mockResolvedValue(tempoTraces([]));
 
-    const tool = createInvestigateToolFactory(makeConfig(), store)({} as never);
+    const tool = createInvestigateToolFactory(makeRegistry(), store)({} as never);
     await tool!.execute("call-service", {
       focus: "some issue",
       service: "my-api",

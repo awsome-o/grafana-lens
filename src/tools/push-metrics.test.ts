@@ -3,6 +3,7 @@ import type { Meter, Counter as OtelCounter } from "@opentelemetry/api";
 import { CustomMetricsStore } from "../services/custom-metrics-store.js";
 import { createPushMetricsToolFactory } from "./push-metrics.js";
 import type { ValidatedGrafanaLensConfig } from "../config.js";
+import { GrafanaClientRegistry } from "../grafana-client-registry.js";
 import type { OtlpJsonWriter } from "../services/otlp-json-writer.js";
 
 // ── Mock Meter ──────────────────────────────────────────────────────
@@ -29,8 +30,15 @@ function makeMockMeter() {
 
 function makeConfig(): ValidatedGrafanaLensConfig {
   return {
-    grafana: { url: "http://localhost:3000", apiKey: "test-key" },
-  };
+    grafana: {
+      instances: { default: { url: "http://localhost:3000", apiKey: "test-key" } },
+      defaultInstance: "default",
+    },
+  } as ValidatedGrafanaLensConfig;
+}
+
+function makeRegistry(): GrafanaClientRegistry {
+  return new GrafanaClientRegistry(makeConfig());
 }
 
 function makeMockWriter() {
@@ -78,7 +86,7 @@ describe("grafana_push_metrics tool", () => {
   // ── Push action ─────────────────────────────────────────────────
 
   test("push single metric", async () => {
-    const tool = createPushMetricsToolFactory(makeConfig(), () => store)({} as never);
+    const tool = createPushMetricsToolFactory(makeRegistry(), () => store)({} as never);
     const result = await tool!.execute("call-1", {
       metrics: [{ name: "steps_today", value: 8000 }],
     });
@@ -91,7 +99,7 @@ describe("grafana_push_metrics tool", () => {
   });
 
   test("push batch of 3 metrics", async () => {
-    const tool = createPushMetricsToolFactory(makeConfig(), () => store)({} as never);
+    const tool = createPushMetricsToolFactory(makeRegistry(), () => store)({} as never);
     const result = await tool!.execute("call-2", {
       metrics: [
         { name: "temperature", value: 22.5 },
@@ -106,7 +114,7 @@ describe("grafana_push_metrics tool", () => {
   });
 
   test("push with auto-registration", async () => {
-    const tool = createPushMetricsToolFactory(makeConfig(), () => store)({} as never);
+    const tool = createPushMetricsToolFactory(makeRegistry(), () => store)({} as never);
     await tool!.execute("call-3", {
       metrics: [{ name: "openclaw_ext_new_metric", value: 42 }],
     });
@@ -117,7 +125,7 @@ describe("grafana_push_metrics tool", () => {
   });
 
   test("push partial success — 2 accepted, 1 rejected", async () => {
-    const tool = createPushMetricsToolFactory(makeConfig(), () => store)({} as never);
+    const tool = createPushMetricsToolFactory(makeRegistry(), () => store)({} as never);
     const result = await tool!.execute("call-4", {
       metrics: [
         { name: "good_one", value: 1 },
@@ -133,7 +141,7 @@ describe("grafana_push_metrics tool", () => {
   });
 
   test("push empty metrics array returns error", async () => {
-    const tool = createPushMetricsToolFactory(makeConfig(), () => store)({} as never);
+    const tool = createPushMetricsToolFactory(makeRegistry(), () => store)({} as never);
     const result = await tool!.execute("call-5", { metrics: [] });
 
     const parsed = parse(result);
@@ -141,7 +149,7 @@ describe("grafana_push_metrics tool", () => {
   });
 
   test("push without metrics param returns error", async () => {
-    const tool = createPushMetricsToolFactory(makeConfig(), () => store)({} as never);
+    const tool = createPushMetricsToolFactory(makeRegistry(), () => store)({} as never);
     const result = await tool!.execute("call-6", {});
 
     const parsed = parse(result);
@@ -149,7 +157,7 @@ describe("grafana_push_metrics tool", () => {
   });
 
   test("push auto-prepends openclaw_ext_ prefix", async () => {
-    const tool = createPushMetricsToolFactory(makeConfig(), () => store)({} as never);
+    const tool = createPushMetricsToolFactory(makeRegistry(), () => store)({} as never);
     await tool!.execute("call-7", {
       metrics: [{ name: "calendar_meetings", value: 5 }],
     });
@@ -158,7 +166,7 @@ describe("grafana_push_metrics tool", () => {
   });
 
   test("push response includes queryNames", async () => {
-    const tool = createPushMetricsToolFactory(makeConfig(), () => store)({} as never);
+    const tool = createPushMetricsToolFactory(makeRegistry(), () => store)({} as never);
     const result = await tool!.execute("call-8", {
       metrics: [{ name: "test", value: 1 }],
     });
@@ -169,7 +177,7 @@ describe("grafana_push_metrics tool", () => {
   });
 
   test("push counter includes _total in queryNames", async () => {
-    const tool = createPushMetricsToolFactory(makeConfig(), () => store)({} as never);
+    const tool = createPushMetricsToolFactory(makeRegistry(), () => store)({} as never);
     const result = await tool!.execute("call-qn1", {
       metrics: [
         { name: "api_calls", value: 10, type: "counter", help: "API calls" },
@@ -185,7 +193,7 @@ describe("grafana_push_metrics tool", () => {
   });
 
   test("rejected metrics excluded from queryNames", async () => {
-    const tool = createPushMetricsToolFactory(makeConfig(), () => store)({} as never);
+    const tool = createPushMetricsToolFactory(makeRegistry(), () => store)({} as never);
     const result = await tool!.execute("call-qn2", {
       metrics: [
         { name: "good", value: 1 },
@@ -199,7 +207,7 @@ describe("grafana_push_metrics tool", () => {
 
   test("push calls trackPush with accepted and rejected counts", async () => {
     const trackPushSpy = vi.spyOn(store, "trackPush");
-    const tool = createPushMetricsToolFactory(makeConfig(), () => store)({} as never);
+    const tool = createPushMetricsToolFactory(makeRegistry(), () => store)({} as never);
 
     await tool!.execute("call-tp1", {
       metrics: [
@@ -216,7 +224,7 @@ describe("grafana_push_metrics tool", () => {
   // ── Register action ─────────────────────────────────────────────
 
   test("register creates metric with explicit schema", async () => {
-    const tool = createPushMetricsToolFactory(makeConfig(), () => store)({} as never);
+    const tool = createPushMetricsToolFactory(makeRegistry(), () => store)({} as never);
     const result = await tool!.execute("call-r1", {
       action: "register",
       name: "weight_kg",
@@ -235,7 +243,7 @@ describe("grafana_push_metrics tool", () => {
   });
 
   test("register with ttlDays", async () => {
-    const tool = createPushMetricsToolFactory(makeConfig(), () => store)({} as never);
+    const tool = createPushMetricsToolFactory(makeRegistry(), () => store)({} as never);
     const result = await tool!.execute("call-r2", {
       action: "register",
       name: "temp_metric",
@@ -249,7 +257,7 @@ describe("grafana_push_metrics tool", () => {
   });
 
   test("register counter includes queryName with _total", async () => {
-    const tool = createPushMetricsToolFactory(makeConfig(), () => store)({} as never);
+    const tool = createPushMetricsToolFactory(makeRegistry(), () => store)({} as never);
     const result = await tool!.execute("call-r-qn", {
       action: "register",
       name: "events",
@@ -262,7 +270,7 @@ describe("grafana_push_metrics tool", () => {
   });
 
   test("register gauge includes queryName without _total", async () => {
-    const tool = createPushMetricsToolFactory(makeConfig(), () => store)({} as never);
+    const tool = createPushMetricsToolFactory(makeRegistry(), () => store)({} as never);
     const result = await tool!.execute("call-r-qn2", {
       action: "register",
       name: "weight_kg",
@@ -274,7 +282,7 @@ describe("grafana_push_metrics tool", () => {
   });
 
   test("register adds auto-prefix note", async () => {
-    const tool = createPushMetricsToolFactory(makeConfig(), () => store)({} as never);
+    const tool = createPushMetricsToolFactory(makeRegistry(), () => store)({} as never);
     const result = await tool!.execute("call-r3", {
       action: "register",
       name: "no_prefix",
@@ -294,7 +302,7 @@ describe("grafana_push_metrics tool", () => {
       { name: "openclaw_ext_events", value: 5, type: "counter" },
     ]);
 
-    const tool = createPushMetricsToolFactory(makeConfig(), () => store)({} as never);
+    const tool = createPushMetricsToolFactory(makeRegistry(), () => store)({} as never);
     const result = await tool!.execute("call-l1", { action: "list" });
 
     const parsed = parse(result);
@@ -311,7 +319,7 @@ describe("grafana_push_metrics tool", () => {
   test("delete removes a metric", async () => {
     store.pushValues([{ name: "openclaw_ext_removable", value: 1 }]);
 
-    const tool = createPushMetricsToolFactory(makeConfig(), () => store)({} as never);
+    const tool = createPushMetricsToolFactory(makeRegistry(), () => store)({} as never);
     const result = await tool!.execute("call-d1", {
       action: "delete",
       name: "removable",
@@ -324,7 +332,7 @@ describe("grafana_push_metrics tool", () => {
   });
 
   test("delete returns error for unknown metric", async () => {
-    const tool = createPushMetricsToolFactory(makeConfig(), () => store)({} as never);
+    const tool = createPushMetricsToolFactory(makeRegistry(), () => store)({} as never);
     const result = await tool!.execute("call-d2", {
       action: "delete",
       name: "nonexistent",
@@ -337,7 +345,7 @@ describe("grafana_push_metrics tool", () => {
   // ── Error handling ──────────────────────────────────────────────
 
   test("returns error when store not initialized", async () => {
-    const tool = createPushMetricsToolFactory(makeConfig(), () => null)({} as never);
+    const tool = createPushMetricsToolFactory(makeRegistry(), () => null)({} as never);
     const result = await tool!.execute("call-e1", {
       metrics: [{ name: "test", value: 1 }],
     });
@@ -347,7 +355,7 @@ describe("grafana_push_metrics tool", () => {
   });
 
   test("unknown action returns error", async () => {
-    const tool = createPushMetricsToolFactory(makeConfig(), () => store)({} as never);
+    const tool = createPushMetricsToolFactory(makeRegistry(), () => store)({} as never);
     const result = await tool!.execute("call-e2", { action: "invalid" });
 
     const parsed = parse(result);
@@ -358,7 +366,7 @@ describe("grafana_push_metrics tool", () => {
 
   test("push with timestamps routes to timestamped path", async () => {
     const { store: tsStore, writer } = makeStoreWithWriter();
-    const tool = createPushMetricsToolFactory(makeConfig(), () => tsStore)({} as never);
+    const tool = createPushMetricsToolFactory(makeRegistry(), () => tsStore)({} as never);
 
     const result = await tool!.execute("call-ts1", {
       metrics: [
@@ -375,7 +383,7 @@ describe("grafana_push_metrics tool", () => {
 
   test("push mixed batch — some timestamped, some real-time", async () => {
     const { store: tsStore } = makeStoreWithWriter();
-    const tool = createPushMetricsToolFactory(makeConfig(), () => tsStore)({} as never);
+    const tool = createPushMetricsToolFactory(makeRegistry(), () => tsStore)({} as never);
 
     const result = await tool!.execute("call-ts2", {
       metrics: [
@@ -394,7 +402,7 @@ describe("grafana_push_metrics tool", () => {
 
   test("push counter with timestamp is rejected", async () => {
     const { store: tsStore } = makeStoreWithWriter();
-    const tool = createPushMetricsToolFactory(makeConfig(), () => tsStore)({} as never);
+    const tool = createPushMetricsToolFactory(makeRegistry(), () => tsStore)({} as never);
 
     const result = await tool!.execute("call-ts3", {
       metrics: [
@@ -410,7 +418,7 @@ describe("grafana_push_metrics tool", () => {
 
   test("push with invalid timestamp is rejected", async () => {
     const { store: tsStore } = makeStoreWithWriter();
-    const tool = createPushMetricsToolFactory(makeConfig(), () => tsStore)({} as never);
+    const tool = createPushMetricsToolFactory(makeRegistry(), () => tsStore)({} as never);
 
     const result = await tool!.execute("call-ts4", {
       metrics: [
@@ -426,7 +434,7 @@ describe("grafana_push_metrics tool", () => {
 
   test("timestamped push includes queryNames in response", async () => {
     const { store: tsStore } = makeStoreWithWriter();
-    const tool = createPushMetricsToolFactory(makeConfig(), () => tsStore)({} as never);
+    const tool = createPushMetricsToolFactory(makeRegistry(), () => tsStore)({} as never);
 
     const result = await tool!.execute("call-ts5", {
       metrics: [
@@ -444,7 +452,7 @@ describe("grafana_push_metrics tool", () => {
 
   test("adds note when timestamped data is >10m old", async () => {
     const { store: tsStore } = makeStoreWithWriter();
-    const tool = createPushMetricsToolFactory(makeConfig(), () => tsStore)({} as never);
+    const tool = createPushMetricsToolFactory(makeRegistry(), () => tsStore)({} as never);
 
     // Timestamp from a day ago — clearly >10m old
     const yesterday = new Date(Date.now() - 86_400_000).toISOString();
@@ -460,7 +468,7 @@ describe("grafana_push_metrics tool", () => {
 
   test("no note when timestamps are within 10m window", async () => {
     const { store: tsStore } = makeStoreWithWriter();
-    const tool = createPushMetricsToolFactory(makeConfig(), () => tsStore)({} as never);
+    const tool = createPushMetricsToolFactory(makeRegistry(), () => tsStore)({} as never);
 
     // Timestamp from 5 minutes ago — within 10m window
     const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
@@ -474,7 +482,7 @@ describe("grafana_push_metrics tool", () => {
   });
 
   test("no note for real-time pushes (no timestamps)", async () => {
-    const tool = createPushMetricsToolFactory(makeConfig(), () => store)({} as never);
+    const tool = createPushMetricsToolFactory(makeRegistry(), () => store)({} as never);
 
     const result = await tool!.execute("call-note3", {
       metrics: [{ name: "steps", value: 8000 }],
@@ -488,7 +496,7 @@ describe("grafana_push_metrics tool", () => {
   // ── Suggested workflow ──────────────────────────────────────────────
 
   test("push response includes suggestedWorkflow with verify and visualize steps", async () => {
-    const tool = createPushMetricsToolFactory(makeConfig(), () => store)({} as never);
+    const tool = createPushMetricsToolFactory(makeRegistry(), () => store)({} as never);
     const result = await tool!.execute("call-sw1", {
       metrics: [{ name: "meditation_minutes", value: 30 }],
     });
@@ -509,7 +517,7 @@ describe("grafana_push_metrics tool", () => {
   });
 
   test("push multi-metric batch omits alert suggestion (ambiguous threshold)", async () => {
-    const tool = createPushMetricsToolFactory(makeConfig(), () => store)({} as never);
+    const tool = createPushMetricsToolFactory(makeRegistry(), () => store)({} as never);
     const result = await tool!.execute("call-sw2", {
       metrics: [
         { name: "steps", value: 8000 },
@@ -524,7 +532,7 @@ describe("grafana_push_metrics tool", () => {
   });
 
   test("push with all rejected does not include suggestedWorkflow", async () => {
-    const tool = createPushMetricsToolFactory(makeConfig(), () => store)({} as never);
+    const tool = createPushMetricsToolFactory(makeRegistry(), () => store)({} as never);
     const result = await tool!.execute("call-sw3", {
       metrics: [{ name: "bad", value: NaN }],
     });
@@ -534,7 +542,7 @@ describe("grafana_push_metrics tool", () => {
   });
 
   test("register response includes suggestedWorkflow with push and query steps", async () => {
-    const tool = createPushMetricsToolFactory(makeConfig(), () => store)({} as never);
+    const tool = createPushMetricsToolFactory(makeRegistry(), () => store)({} as never);
     const result = await tool!.execute("call-sw4", {
       action: "register",
       name: "weight_kg",
@@ -555,7 +563,7 @@ describe("grafana_push_metrics tool", () => {
   });
 
   test("register counter includes rate() in query example", async () => {
-    const tool = createPushMetricsToolFactory(makeConfig(), () => store)({} as never);
+    const tool = createPushMetricsToolFactory(makeRegistry(), () => store)({} as never);
     const result = await tool!.execute("call-sw5", {
       action: "register",
       name: "api_calls",
@@ -569,7 +577,7 @@ describe("grafana_push_metrics tool", () => {
 
   test("note appears in mixed batch when any timestamp is old", async () => {
     const { store: tsStore } = makeStoreWithWriter();
-    const tool = createPushMetricsToolFactory(makeConfig(), () => tsStore)({} as never);
+    const tool = createPushMetricsToolFactory(makeRegistry(), () => tsStore)({} as never);
 
     const yesterday = new Date(Date.now() - 86_400_000).toISOString();
     const result = await tool!.execute("call-note4", {

@@ -11,8 +11,9 @@
  */
 
 import { jsonResult, readStringParam } from "../sdk-compat.js";
-import { GrafanaClient, type MetricMetadataItem } from "../grafana-client.js";
-import type { ValidatedGrafanaLensConfig } from "../config.js";
+import type { MetricMetadataItem } from "../grafana-client.js";
+import type { GrafanaClientRegistry } from "../grafana-client-registry.js";
+import { instanceProperties } from "./instance-param.js";
 import { getHealthContext } from "./health-context.js";
 import { KNOWN_BREAKDOWNS_MAP } from "../metric-definitions.js";
 
@@ -169,13 +170,7 @@ export function buildSuggestedQueries(
   return queries;
 }
 
-export function createExplainMetricToolFactory(config: ValidatedGrafanaLensConfig) {
-  const client = new GrafanaClient({
-    url: config.grafana.url,
-    apiKey: config.grafana.apiKey,
-    orgId: config.grafana.orgId,
-  });
-
+export function createExplainMetricToolFactory(registry: GrafanaClientRegistry) {
   return (_ctx: unknown) => ({
     name: "grafana_explain_metric",
     label: "Explain Metric",
@@ -194,6 +189,7 @@ export function createExplainMetricToolFactory(config: ValidatedGrafanaLensConfi
     parameters: {
       type: "object" as const,
       properties: {
+        ...instanceProperties(registry),
         datasourceUid: {
           type: "string",
           description: "UID of the Prometheus datasource (use grafana_explore_datasources to find it)",
@@ -216,6 +212,7 @@ export function createExplainMetricToolFactory(config: ValidatedGrafanaLensConfi
       required: ["datasourceUid", "expr"],
     },
     async execute(_toolCallId: string, params: Record<string, unknown>) {
+      const client = registry.get(readStringParam(params, "instance"));
       const datasourceUid = readStringParam(params, "datasourceUid", { required: true, label: "Datasource UID" });
       const expr = readStringParam(params, "expr", { required: true, label: "PromQL expression" });
       const period = readStringParam(params, "period") ?? "24h";

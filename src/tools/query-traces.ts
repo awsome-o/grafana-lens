@@ -9,14 +9,14 @@
  */
 
 import { jsonResult, readStringParam, readNumberParam } from "../sdk-compat.js";
-import { GrafanaClient } from "../grafana-client.js";
 import type {
   TempoSearchTrace,
   TempoAttribute,
   TempoTraceResult,
   TempoResourceSpans,
 } from "../grafana-client.js";
-import type { ValidatedGrafanaLensConfig } from "../config.js";
+import type { GrafanaClientRegistry } from "../grafana-client-registry.js";
+import { instanceProperties } from "./instance-param.js";
 import { resolvePanelQuery } from "./resolve-panel.js";
 import { getTraceQLGuidance } from "./query-guidance.js";
 
@@ -219,13 +219,7 @@ function formatSearchTraces(traces: TempoSearchTrace[], limit: number) {
 
 // ── Tool factory ──────────────────────────────────────────────────────
 
-export function createQueryTracesToolFactory(config: ValidatedGrafanaLensConfig) {
-  const client = new GrafanaClient({
-    url: config.grafana.url,
-    apiKey: config.grafana.apiKey,
-    orgId: config.grafana.orgId,
-  });
-
+export function createQueryTracesToolFactory(registry: GrafanaClientRegistry) {
   return (_ctx: unknown) => ({
     name: "grafana_query_traces",
     label: "Grafana Query Traces",
@@ -241,6 +235,7 @@ export function createQueryTracesToolFactory(config: ValidatedGrafanaLensConfig)
     parameters: {
       type: "object" as const,
       properties: {
+        ...instanceProperties(registry),
         datasourceUid: {
           type: "string",
           description: "UID of the Tempo datasource (use grafana_explore_datasources to find it). Optional when using dashboardUid + panelId.",
@@ -286,6 +281,7 @@ export function createQueryTracesToolFactory(config: ValidatedGrafanaLensConfig)
       required: [],
     },
     async execute(_toolCallId: string, params: Record<string, unknown>) {
+      const client = registry.get(readStringParam(params, "instance"));
       const dashboardUid = readStringParam(params, "dashboardUid");
       const panelId = readNumberParam(params, "panelId");
       let datasourceUid = readStringParam(params, "datasourceUid");

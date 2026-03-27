@@ -7,9 +7,9 @@
  * grafana_list_metrics, plus routing hints for which tool to use.
  */
 
-import { jsonResult } from "../sdk-compat.js";
-import { GrafanaClient } from "../grafana-client.js";
-import type { ValidatedGrafanaLensConfig } from "../config.js";
+import { jsonResult, readStringParam } from "../sdk-compat.js";
+import type { GrafanaClientRegistry } from "../grafana-client-registry.js";
+import { instanceProperties } from "./instance-param.js";
 
 export type QueryToolName = "grafana_query" | "grafana_query_logs" | "grafana_query_traces";
 export type QueryLanguageName = "PromQL" | "LogQL" | "TraceQL";
@@ -33,13 +33,7 @@ export function getQueryCapability(dsType: string): QueryCapability {
   return { queryTool: null, queryLanguage: null, supported: false };
 }
 
-export function createExploreDatasourcesToolFactory(config: ValidatedGrafanaLensConfig) {
-  const client = new GrafanaClient({
-    url: config.grafana.url,
-    apiKey: config.grafana.apiKey,
-    orgId: config.grafana.orgId,
-  });
-
+export function createExploreDatasourcesToolFactory(registry: GrafanaClientRegistry) {
   return (_ctx: unknown) => ({
     name: "grafana_explore_datasources",
     label: "Explore Datasources",
@@ -51,13 +45,17 @@ export function createExploreDatasourcesToolFactory(config: ValidatedGrafanaLens
     ].join(" "),
     parameters: {
       type: "object" as const,
-      properties: {},
+      properties: {
+        ...instanceProperties(registry),
+      },
     },
     async execute(_toolCallId: string, _params: Record<string, unknown>) {
+      const instanceName = readStringParam(_params, "instance");
+      const client = registry.get(instanceName);
       try {
         const datasources = await client.listDatasources();
 
-        return jsonResult({
+        const result: Record<string, unknown> = {
           status: "success",
           count: datasources.length,
           datasources: datasources.map((ds) => ({
@@ -67,7 +65,15 @@ export function createExploreDatasourcesToolFactory(config: ValidatedGrafanaLens
             isDefault: ds.isDefault,
             ...getQueryCapability(ds.type),
           })),
-        });
+        };
+
+        // Multi-instance: include instance context so the agent knows what's available
+        if (registry.isMultiInstance()) {
+          result.instance = instanceName ?? registry.getDefaultName();
+          result.availableInstances = registry.listInstances();
+        }
+
+        return jsonResult(result);
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err);
         return jsonResult({ error: `Failed to list datasources: ${reason}` });

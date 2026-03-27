@@ -10,8 +10,9 @@
  */
 
 import { jsonResult, readStringParam } from "../sdk-compat.js";
-import { GrafanaClient } from "../grafana-client.js";
-import type { ValidatedGrafanaLensConfig } from "../config.js";
+import { GrafanaClientRegistry } from "../grafana-client-registry.js";
+import type { GrafanaClient } from "../grafana-client.js";
+import { instanceProperties } from "./instance-param.js";
 import { validateTargetQueries } from "./update-dashboard.js";
 import type { QueryValidationEntry } from "./update-dashboard.js";
 
@@ -248,13 +249,7 @@ export async function validateDashboardPanels(
   };
 }
 
-export function createDashboardToolFactory(config: ValidatedGrafanaLensConfig) {
-  const client = new GrafanaClient({
-    url: config.grafana.url,
-    apiKey: config.grafana.apiKey,
-    orgId: config.grafana.orgId,
-  });
-
+export function createDashboardToolFactory(registry: GrafanaClientRegistry) {
   return (_ctx: unknown) => ({
     name: "grafana_create_dashboard",
     label: "Grafana Dashboard",
@@ -276,6 +271,7 @@ export function createDashboardToolFactory(config: ValidatedGrafanaLensConfig) {
     parameters: {
       type: "object" as const,
       properties: {
+        ...instanceProperties(registry),
         template: {
           type: "string",
           enum: Object.keys(TEMPLATES),
@@ -305,6 +301,7 @@ export function createDashboardToolFactory(config: ValidatedGrafanaLensConfig) {
       },
     },
     async execute(_toolCallId: string, params: Record<string, unknown>) {
+      const client = registry.get(readStringParam(params, "instance"));
       const template = readStringParam(params, "template");
       const title = readStringParam(params, "title");
       const folderUid = readStringParam(params, "folderUid");

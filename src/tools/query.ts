@@ -7,8 +7,9 @@
  */
 
 import { jsonResult, readStringParam, readNumberParam } from "../sdk-compat.js";
-import { GrafanaClient, parseDateMathToSeconds } from "../grafana-client.js";
-import type { ValidatedGrafanaLensConfig } from "../config.js";
+import { parseDateMathToSeconds } from "../grafana-client.js";
+import type { GrafanaClientRegistry } from "../grafana-client-registry.js";
+import { instanceProperties } from "./instance-param.js";
 import { getHealthRule, evaluateHealthContext, type HealthContext } from "./health-context.js";
 import { resolvePanelQuery } from "./resolve-panel.js";
 import { getPromQLGuidance, parsePrometheusWarnings, getEmptyResultHint } from "./query-guidance.js";
@@ -56,13 +57,7 @@ export function calculateAutoStep(startStr: string, endStr: string): { stepSecon
   return { stepSeconds, stepDisplay };
 }
 
-export function createQueryToolFactory(config: ValidatedGrafanaLensConfig) {
-  const client = new GrafanaClient({
-    url: config.grafana.url,
-    apiKey: config.grafana.apiKey,
-    orgId: config.grafana.orgId,
-  });
-
+export function createQueryToolFactory(registry: GrafanaClientRegistry) {
   return (_ctx: unknown) => ({
     name: "grafana_query",
     label: "Grafana Query",
@@ -79,6 +74,7 @@ export function createQueryToolFactory(config: ValidatedGrafanaLensConfig) {
     parameters: {
       type: "object" as const,
       properties: {
+        ...instanceProperties(registry),
         datasourceUid: {
           type: "string",
           description: "UID of the Prometheus datasource (use grafana_explore_datasources to find it). Optional when using dashboardUid + panelId — resolved from the panel's datasource config.",
@@ -120,6 +116,7 @@ export function createQueryToolFactory(config: ValidatedGrafanaLensConfig) {
       required: [],
     },
     async execute(_toolCallId: string, params: Record<string, unknown>) {
+      const client = registry.get(readStringParam(params, "instance"));
       const dashboardUid = readStringParam(params, "dashboardUid");
       const panelId = readNumberParam(params, "panelId");
       let datasourceUid = readStringParam(params, "datasourceUid");

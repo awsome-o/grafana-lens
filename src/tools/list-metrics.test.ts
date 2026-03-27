@@ -14,6 +14,7 @@ vi.mock("../grafana-client.js", async () => {
       listMetricNames = listMetricNamesMock;
       listLabelValues = listLabelValuesMock;
       getMetricMetadata = getMetricMetadataMock;
+      getUrl() { return "http://localhost:3000"; }
     },
   };
 });
@@ -23,9 +24,19 @@ vi.mock("../grafana-client.js", async () => {
 import { createListMetricsToolFactory, categorizeMetric, PURPOSE_CATEGORIES, deduplicateAndEnrich, KNOWN_LENS_METRICS } from "./list-metrics.js";
 import type { MetricPurpose } from "./list-metrics.js";
 import type { ValidatedGrafanaLensConfig } from "../config.js";
+import { GrafanaClientRegistry } from "../grafana-client-registry.js";
 
 function makeConfig(): ValidatedGrafanaLensConfig {
-  return { grafana: { url: "http://localhost:3000", apiKey: "test-key" } };
+  return {
+    grafana: {
+      instances: { default: { url: "http://localhost:3000", apiKey: "test-key" } },
+      defaultInstance: "default",
+    },
+  } as ValidatedGrafanaLensConfig;
+}
+
+function makeRegistry(): GrafanaClientRegistry {
+  return new GrafanaClientRegistry(makeConfig());
 }
 
 function getTextContent(result: { content: Array<{ type: string; text?: string }> }): string {
@@ -44,7 +55,7 @@ describe("grafana_list_metrics tool", () => {
   test("lists metric names", async () => {
     listMetricNamesMock.mockResolvedValueOnce(["up", "openclaw_lens_tokens_total", "openclaw_lens_cost_usd_total"]);
 
-    const tool = createListMetricsToolFactory(makeConfig())({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-1", { datasourceUid: "prom1" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -57,7 +68,7 @@ describe("grafana_list_metrics tool", () => {
     // Server-side filtering: mock returns only matching results
     listMetricNamesMock.mockResolvedValueOnce(["openclaw_lens_tokens_total", "openclaw_lens_cost_usd_total"]);
 
-    const tool = createListMetricsToolFactory(makeConfig())({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-2", { datasourceUid: "prom1", prefix: "openclaw_lens_" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -72,7 +83,7 @@ describe("grafana_list_metrics tool", () => {
     const manyMetrics = Array.from({ length: 300 }, (_, i) => `metric_${i}`);
     listMetricNamesMock.mockResolvedValueOnce(manyMetrics);
 
-    const tool = createListMetricsToolFactory(makeConfig())({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-3", { datasourceUid: "prom1" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -84,7 +95,7 @@ describe("grafana_list_metrics tool", () => {
   test("label mode returns label values", async () => {
     listLabelValuesMock.mockResolvedValueOnce(["prometheus:9090", "node-exporter:9100"]);
 
-    const tool = createListMetricsToolFactory(makeConfig())({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-4", { datasourceUid: "prom1", label: "instance" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -96,7 +107,7 @@ describe("grafana_list_metrics tool", () => {
   test("API error caught gracefully", async () => {
     listMetricNamesMock.mockRejectedValueOnce(new Error("Not found: list metric names"));
 
-    const tool = createListMetricsToolFactory(makeConfig())({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-5", { datasourceUid: "bad-uid" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -111,7 +122,7 @@ describe("grafana_list_metrics tool", () => {
       http_requests_total: [{ type: "counter", help: "Total HTTP requests", unit: "" }],
     });
 
-    const tool = createListMetricsToolFactory(makeConfig())({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-m1", { datasourceUid: "prom1", metadata: true });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -132,7 +143,7 @@ describe("grafana_list_metrics tool", () => {
       http_request_duration_seconds: [{ type: "histogram", help: "HTTP request duration", unit: "" }],
     });
 
-    const tool = createListMetricsToolFactory(makeConfig())({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-m2", { datasourceUid: "prom1", metadata: true, prefix: "http_" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -149,7 +160,7 @@ describe("grafana_list_metrics tool", () => {
     }
     getMetricMetadataMock.mockResolvedValueOnce(bigMeta);
 
-    const tool = createListMetricsToolFactory(makeConfig())({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-m3", { datasourceUid: "prom1", metadata: true });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -161,7 +172,7 @@ describe("grafana_list_metrics tool", () => {
   test("label mode ignores metadata flag", async () => {
     listLabelValuesMock.mockResolvedValueOnce(["val1", "val2"]);
 
-    const tool = createListMetricsToolFactory(makeConfig())({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-m4", { datasourceUid: "prom1", label: "job", metadata: true });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -175,7 +186,7 @@ describe("grafana_list_metrics tool", () => {
   test("search param constructs match[] regex", async () => {
     listMetricNamesMock.mockResolvedValueOnce(["openclaw_ext_steps_today", "openclaw_ext_steps_weekly"]);
 
-    const tool = createListMetricsToolFactory(makeConfig())({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-s1", { datasourceUid: "prom1", search: "steps" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -187,7 +198,7 @@ describe("grafana_list_metrics tool", () => {
   test("search + prefix combined into single match[]", async () => {
     listMetricNamesMock.mockResolvedValueOnce(["openclaw_ext_fitness_steps"]);
 
-    const tool = createListMetricsToolFactory(makeConfig())({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-s2", { datasourceUid: "prom1", prefix: "openclaw_ext_", search: "fitness" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -205,7 +216,7 @@ describe("grafana_list_metrics tool", () => {
       openclaw_ext_walk_distance: [{ type: "gauge", help: "Walking distance with step tracker", unit: "" }],
     });
 
-    const tool = createListMetricsToolFactory(makeConfig())({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-s3", { datasourceUid: "prom1", metadata: true, search: "step" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -219,7 +230,7 @@ describe("grafana_list_metrics tool", () => {
   test("search escapes special regex characters", async () => {
     listMetricNamesMock.mockResolvedValue([]);
 
-    const tool = createListMetricsToolFactory(makeConfig())({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry())({} as never);
     await tool!.execute("call-s4", { datasourceUid: "prom1", search: "foo.bar+baz" });
 
     expect(listMetricNamesMock).toHaveBeenCalledWith("prom1", { match: '{__name__=~".*foo\\.bar\\+baz.*"}' });
@@ -239,7 +250,7 @@ describe("grafana_list_metrics tool", () => {
     };
     const getStore = () => mockStore as never;
 
-    const tool = createListMetricsToolFactory(makeConfig(), getStore)({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry(), getStore)({} as never);
     const result = await tool!.execute("call-cm1", { datasourceUid: "prom1", metadata: true });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -264,7 +275,7 @@ describe("grafana_list_metrics tool", () => {
     };
     const getStore = () => mockStore as never;
 
-    const tool = createListMetricsToolFactory(makeConfig(), getStore)({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry(), getStore)({} as never);
     const result = await tool!.execute("call-cm2", { datasourceUid: "prom1", metadata: true });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -288,7 +299,7 @@ describe("grafana_list_metrics tool", () => {
     };
     const getStore = () => mockStore as never;
 
-    const tool = createListMetricsToolFactory(makeConfig(), getStore)({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry(), getStore)({} as never);
     const result = await tool!.execute("call-cm3", { datasourceUid: "prom1", metadata: true, search: "steps" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -302,7 +313,7 @@ describe("grafana_list_metrics tool", () => {
     });
 
     // No store parameter — original behavior
-    const tool = createListMetricsToolFactory(makeConfig())({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-cm4", { datasourceUid: "prom1", metadata: true });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -323,7 +334,7 @@ describe("grafana_list_metrics tool", () => {
       up: [{ type: "gauge", help: "Target is up", unit: "" }],
     });
 
-    const tool = createListMetricsToolFactory(makeConfig())({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-cat1", { datasourceUid: "prom1", metadata: true });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -346,7 +357,7 @@ describe("grafana_list_metrics tool", () => {
       openclaw_lens_sessions_active: [{ type: "gauge", help: "Sessions", unit: "" }],
     });
 
-    const tool = createListMetricsToolFactory(makeConfig())({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-cat2", { datasourceUid: "prom1", metadata: true });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -362,7 +373,7 @@ describe("grafana_list_metrics tool", () => {
       node_cpu_seconds_total: [{ type: "counter", help: "CPU seconds", unit: "" }],
     });
 
-    const tool = createListMetricsToolFactory(makeConfig())({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-cat3", { datasourceUid: "prom1", metadata: true });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -380,7 +391,7 @@ describe("grafana_list_metrics tool", () => {
     };
     const getStore = () => mockStore as never;
 
-    const tool = createListMetricsToolFactory(makeConfig(), getStore)({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry(), getStore)({} as never);
     const result = await tool!.execute("call-cat4", { datasourceUid: "prom1", metadata: true });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -397,7 +408,7 @@ describe("grafana_list_metrics tool", () => {
       up: [{ type: "gauge", help: "Target is up", unit: "" }],
     });
 
-    const tool = createListMetricsToolFactory(makeConfig())({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-compact1", { datasourceUid: "prom1", metadata: true, compact: true });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -426,7 +437,7 @@ describe("grafana_list_metrics tool", () => {
       openclaw_lens_sessions_active: [{ type: "gauge", help: "Sessions", unit: "" }],
     });
 
-    const tool = createListMetricsToolFactory(makeConfig())({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-compact2", { datasourceUid: "prom1", metadata: true, compact: true });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -444,7 +455,7 @@ describe("grafana_list_metrics tool", () => {
     };
     const getStore = () => mockStore as never;
 
-    const tool = createListMetricsToolFactory(makeConfig(), getStore)({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry(), getStore)({} as never);
     const result = await tool!.execute("call-compact3", { datasourceUid: "prom1", metadata: true, compact: true });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -460,7 +471,7 @@ describe("grafana_list_metrics tool", () => {
   test("compact without metadata is ignored — returns name-only list as usual", async () => {
     listMetricNamesMock.mockResolvedValueOnce(["up", "openclaw_lens_tokens_total"]);
 
-    const tool = createListMetricsToolFactory(makeConfig())({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-compact4", { datasourceUid: "prom1", compact: true });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -475,7 +486,7 @@ describe("grafana_list_metrics tool", () => {
       openclaw_run_duration_ms_milliseconds_bucket: [{ type: "histogram", help: "Run duration", unit: "" }],
     });
 
-    const tool = createListMetricsToolFactory(makeConfig())({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-cat5", { datasourceUid: "prom1", metadata: true });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -505,7 +516,7 @@ describe("purpose filter", () => {
       "openclaw_lens_webhook_received_total",
     ]);
 
-    const tool = createListMetricsToolFactory(makeConfig())({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-p1", { datasourceUid: "prom1", purpose: "performance" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -530,7 +541,7 @@ describe("purpose filter", () => {
       openclaw_lens_queue_depth: [{ type: "gauge", help: "Queue depth", unit: "" }],
     });
 
-    const tool = createListMetricsToolFactory(makeConfig())({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-p2", { datasourceUid: "prom1", purpose: "cost", metadata: true });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -551,7 +562,7 @@ describe("purpose filter", () => {
       "openclaw_lens_cost_by_token_type_total",
     ]);
 
-    const tool = createListMetricsToolFactory(makeConfig())({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-p3", { datasourceUid: "prom1", purpose: "reliability" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -570,7 +581,7 @@ describe("purpose filter", () => {
       "openclaw_lens_tokens_total",
     ]);
 
-    const tool = createListMetricsToolFactory(makeConfig())({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-p4", { datasourceUid: "prom1", purpose: "capacity" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -583,7 +594,7 @@ describe("purpose filter", () => {
   });
 
   test("invalid purpose returns actionable error", async () => {
-    const tool = createListMetricsToolFactory(makeConfig())({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-p5", { datasourceUid: "prom1", purpose: "banana" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -598,7 +609,7 @@ describe("purpose filter", () => {
       "openclaw_lens_session_latency_avg_ms",
     ]);
 
-    const tool = createListMetricsToolFactory(makeConfig())({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-p6", { datasourceUid: "prom1", purpose: "performance", prefix: "openclaw_lens_" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -612,7 +623,7 @@ describe("purpose filter", () => {
       "openclaw_lens_session_latency_avg_ms",
     ]);
 
-    const tool = createListMetricsToolFactory(makeConfig())({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-p7", { datasourceUid: "prom1", purpose: "performance", search: "latency" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -625,7 +636,7 @@ describe("purpose filter", () => {
   test("purpose ignored in label mode", async () => {
     listLabelValuesMock.mockResolvedValueOnce(["val1", "val2"]);
 
-    const tool = createListMetricsToolFactory(makeConfig())({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-p8", { datasourceUid: "prom1", label: "job", purpose: "performance" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -761,7 +772,7 @@ describe("OTLP metadata fallback (synthetic metadata)", () => {
       "openclaw_lens_daily_cost_usd",
     ]);
 
-    const tool = createListMetricsToolFactory(makeConfig())({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-otlp1", { datasourceUid: "prom1", metadata: true });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -792,7 +803,7 @@ describe("OTLP metadata fallback (synthetic metadata)", () => {
       "openclaw_lens_sessions_active",
     ]);
 
-    const tool = createListMetricsToolFactory(makeConfig())({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-otlp2", { datasourceUid: "prom1", metadata: true });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -810,7 +821,7 @@ describe("OTLP metadata fallback (synthetic metadata)", () => {
       up: [{ type: "gauge", help: "Target is up", unit: "" }],
     });
 
-    const tool = createListMetricsToolFactory(makeConfig())({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-otlp3", { datasourceUid: "prom1", metadata: true });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -825,7 +836,7 @@ describe("OTLP metadata fallback (synthetic metadata)", () => {
       "openclaw_lens_daily_cost_usd",
     ]);
 
-    const tool = createListMetricsToolFactory(makeConfig())({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-otlp4", { datasourceUid: "prom1", metadata: true, prefix: "openclaw_lens_" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -842,7 +853,7 @@ describe("OTLP metadata fallback (synthetic metadata)", () => {
       "openclaw_lens_cost_by_token_type_total",
     ]);
 
-    const tool = createListMetricsToolFactory(makeConfig())({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-otlp5", { datasourceUid: "prom1", metadata: true, search: "cost" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -860,7 +871,7 @@ describe("OTLP metadata fallback (synthetic metadata)", () => {
       "openclaw_lens_tool_calls_total",
     ]);
 
-    const tool = createListMetricsToolFactory(makeConfig())({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-otlp6", { datasourceUid: "prom1", metadata: true, purpose: "cost" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -884,7 +895,7 @@ describe("OTLP metadata fallback (synthetic metadata)", () => {
     };
     const getStore = () => mockStore as never;
 
-    const tool = createListMetricsToolFactory(makeConfig(), getStore)({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry(), getStore)({} as never);
     const result = await tool!.execute("call-otlp7", { datasourceUid: "prom1", metadata: true });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -903,7 +914,7 @@ describe("OTLP metadata fallback (synthetic metadata)", () => {
       "openclaw_lens_queue_depth",
     ]);
 
-    const tool = createListMetricsToolFactory(makeConfig())({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-otlp8", { datasourceUid: "prom1", metadata: true });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -917,7 +928,7 @@ describe("OTLP metadata fallback (synthetic metadata)", () => {
       "openclaw_lens_tokens_total",
     ]);
 
-    const tool = createListMetricsToolFactory(makeConfig())({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-otlp9", { datasourceUid: "prom1", metadata: true, compact: true });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -937,7 +948,7 @@ describe("OTLP metadata fallback (synthetic metadata)", () => {
       "some_custom_gauge",
     ]);
 
-    const tool = createListMetricsToolFactory(makeConfig())({} as never);
+    const tool = createListMetricsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-otlp10", { datasourceUid: "prom1", metadata: true });
 
     const parsed = JSON.parse(getTextContent(result));

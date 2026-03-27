@@ -7,8 +7,9 @@
  */
 
 import { jsonResult, readStringParam, readNumberParam } from "../sdk-compat.js";
-import { GrafanaClient, parseDateMathToMs } from "../grafana-client.js";
-import type { ValidatedGrafanaLensConfig } from "../config.js";
+import { parseDateMathToMs } from "../grafana-client.js";
+import { GrafanaClientRegistry } from "../grafana-client-registry.js";
+import { instanceProperties } from "./instance-param.js";
 
 /**
  * Resolve a time parameter that may be epoch ms (number) or a Grafana
@@ -71,13 +72,7 @@ export function buildComparisonHint(
   };
 }
 
-export function createAnnotateToolFactory(config: ValidatedGrafanaLensConfig) {
-  const client = new GrafanaClient({
-    url: config.grafana.url,
-    apiKey: config.grafana.apiKey,
-    orgId: config.grafana.orgId,
-  });
-
+export function createAnnotateToolFactory(registry: GrafanaClientRegistry) {
   return (_ctx: unknown) => ({
     name: "grafana_annotate",
     label: "Grafana Annotate",
@@ -92,6 +87,7 @@ export function createAnnotateToolFactory(config: ValidatedGrafanaLensConfig) {
     parameters: {
       type: "object" as const,
       properties: {
+        ...instanceProperties(registry),
         action: {
           type: "string",
           enum: ["create", "list"],
@@ -141,6 +137,7 @@ export function createAnnotateToolFactory(config: ValidatedGrafanaLensConfig) {
       },
     },
     async execute(_toolCallId: string, params: Record<string, unknown>) {
+      const client = registry.get(readStringParam(params, "instance"));
       const action = readStringParam(params, "action") ?? "create";
       const tags = (params.tags as string[]) ?? [];
 

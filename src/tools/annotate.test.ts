@@ -12,6 +12,7 @@ vi.mock("../grafana-client.js", async (importOriginal) => {
     GrafanaClient: class {
       createAnnotation = createAnnotationMock;
       getAnnotations = getAnnotationsMock;
+      getUrl() { return "http://localhost:3000"; }
     },
   };
 });
@@ -20,9 +21,19 @@ vi.mock("../grafana-client.js", async (importOriginal) => {
 
 import { createAnnotateToolFactory, resolveTimeParam, buildComparisonHint } from "./annotate.js";
 import type { ValidatedGrafanaLensConfig } from "../config.js";
+import { GrafanaClientRegistry } from "../grafana-client-registry.js";
 
 function makeConfig(): ValidatedGrafanaLensConfig {
-  return { grafana: { url: "http://localhost:3000", apiKey: "test-key" } };
+  return {
+    grafana: {
+      instances: { default: { url: "http://localhost:3000", apiKey: "test-key" } },
+      defaultInstance: "default",
+    },
+  } as ValidatedGrafanaLensConfig;
+}
+
+function makeRegistry(): GrafanaClientRegistry {
+  return new GrafanaClientRegistry(makeConfig());
 }
 
 function getTextContent(result: { content: Array<{ type: string; text?: string }> }): string {
@@ -40,7 +51,7 @@ describe("grafana_annotate tool", () => {
   test("create annotation with text and tags", async () => {
     createAnnotationMock.mockResolvedValueOnce({ id: 42, message: "Annotation added" });
 
-    const tool = createAnnotateToolFactory(makeConfig())({} as never);
+    const tool = createAnnotateToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-1", {
       text: "Deployed v2",
       tags: ["deploy"],
@@ -72,7 +83,7 @@ describe("grafana_annotate tool", () => {
       },
     ]);
 
-    const tool = createAnnotateToolFactory(makeConfig())({} as never);
+    const tool = createAnnotateToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-2", {
       action: "list",
       from: 1699900000000,
@@ -88,7 +99,7 @@ describe("grafana_annotate tool", () => {
   test("defaults to create action", async () => {
     createAnnotationMock.mockResolvedValueOnce({ id: 10, message: "ok" });
 
-    const tool = createAnnotateToolFactory(makeConfig())({} as never);
+    const tool = createAnnotateToolFactory(makeRegistry())({} as never);
     await tool!.execute("call-3", { text: "Test annotation" });
 
     expect(createAnnotationMock).toHaveBeenCalledTimes(1);
@@ -98,7 +109,7 @@ describe("grafana_annotate tool", () => {
   test("API error caught gracefully", async () => {
     createAnnotationMock.mockRejectedValueOnce(new Error("Grafana API error 403"));
 
-    const tool = createAnnotateToolFactory(makeConfig())({} as never);
+    const tool = createAnnotateToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-4", { text: "fail" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -111,7 +122,7 @@ describe("grafana_annotate tool", () => {
     getAnnotationsMock.mockResolvedValueOnce([]);
 
     const before = Date.now() - 7 * 86400000;
-    const tool = createAnnotateToolFactory(makeConfig())({} as never);
+    const tool = createAnnotateToolFactory(makeRegistry())({} as never);
     await tool!.execute("call-5", {
       action: "list",
       from: "now-7d",
@@ -131,7 +142,7 @@ describe("grafana_annotate tool", () => {
     createAnnotationMock.mockResolvedValueOnce({ id: 99, message: "ok" });
 
     const before = Date.now() - 2 * 3600000;
-    const tool = createAnnotateToolFactory(makeConfig())({} as never);
+    const tool = createAnnotateToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-6", {
       text: "Incident 2 hours ago",
       time: "now-2h",
@@ -149,7 +160,7 @@ describe("grafana_annotate tool", () => {
   test("numeric epoch ms values still work (backward compat)", async () => {
     getAnnotationsMock.mockResolvedValueOnce([]);
 
-    const tool = createAnnotateToolFactory(makeConfig())({} as never);
+    const tool = createAnnotateToolFactory(makeRegistry())({} as never);
     await tool!.execute("call-7", {
       action: "list",
       from: 1700000000000,
@@ -166,7 +177,7 @@ describe("grafana_annotate tool", () => {
   test("create response includes comparisonHint with before/after windows", async () => {
     createAnnotationMock.mockResolvedValueOnce({ id: 50, message: "ok" });
 
-    const tool = createAnnotateToolFactory(makeConfig())({} as never);
+    const tool = createAnnotateToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-hint-1", {
       text: "Deployed v2.3.0",
       tags: ["deploy"],
@@ -195,7 +206,7 @@ describe("grafana_annotate tool", () => {
     const timeStart = 1700000000000;
     const timeEnd = 1700001800000; // 30 min later
 
-    const tool = createAnnotateToolFactory(makeConfig())({} as never);
+    const tool = createAnnotateToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-hint-2", {
       text: "Maintenance window",
       time: timeStart,
@@ -216,7 +227,7 @@ describe("grafana_annotate tool", () => {
   test("list response does not include comparisonHint", async () => {
     getAnnotationsMock.mockResolvedValueOnce([]);
 
-    const tool = createAnnotateToolFactory(makeConfig())({} as never);
+    const tool = createAnnotateToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-hint-3", {
       action: "list",
       from: "now-1h",

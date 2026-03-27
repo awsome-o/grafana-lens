@@ -15,6 +15,7 @@ vi.mock("../grafana-client.js", () => ({
     deleteDashboard = deleteDashboardMock;
     dashboardUrl = dashboardUrlMock;
     queryPrometheus = queryPrometheusMock;
+    getUrl() { return "http://localhost:3000"; }
   },
 }));
 
@@ -22,10 +23,20 @@ vi.mock("../grafana-client.js", () => ({
 
 import { createUpdateDashboardToolFactory, validateTargetQueries } from "./update-dashboard.js";
 import type { ValidatedGrafanaLensConfig } from "../config.js";
+import { GrafanaClientRegistry } from "../grafana-client-registry.js";
 import { GrafanaClient } from "../grafana-client.js";
 
 function makeConfig(): ValidatedGrafanaLensConfig {
-  return { grafana: { url: "http://localhost:3000", apiKey: "test-key" } };
+  return {
+    grafana: {
+      instances: { default: { url: "http://localhost:3000", apiKey: "test-key" } },
+      defaultInstance: "default",
+    },
+  } as ValidatedGrafanaLensConfig;
+}
+
+function makeRegistry(): GrafanaClientRegistry {
+  return new GrafanaClientRegistry(makeConfig());
 }
 
 function parse(result: unknown): Record<string, unknown> {
@@ -99,7 +110,7 @@ describe("grafana_update_dashboard tool", () => {
       getDashboardMock.mockResolvedValueOnce(makeDashboardResponse());
       setupSaveMock();
 
-      const tool = createUpdateDashboardToolFactory(makeConfig())({} as never);
+      const tool = createUpdateDashboardToolFactory(makeRegistry())({} as never);
       const result = await tool!.execute("call-1", {
         uid: "dash-1",
         operation: "add_panel",
@@ -127,7 +138,7 @@ describe("grafana_update_dashboard tool", () => {
       getDashboardMock.mockResolvedValueOnce(makeDashboardResponse({ panels: [] }));
       setupSaveMock();
 
-      const tool = createUpdateDashboardToolFactory(makeConfig())({} as never);
+      const tool = createUpdateDashboardToolFactory(makeRegistry())({} as never);
       const result = await tool!.execute("call-2", {
         uid: "dash-1",
         operation: "add_panel",
@@ -146,7 +157,7 @@ describe("grafana_update_dashboard tool", () => {
       getDashboardMock.mockResolvedValueOnce(makeDashboardResponse());
       setupSaveMock();
 
-      const tool = createUpdateDashboardToolFactory(makeConfig())({} as never);
+      const tool = createUpdateDashboardToolFactory(makeRegistry())({} as never);
       await tool!.execute("call-3", {
         uid: "dash-1",
         operation: "add_panel",
@@ -165,7 +176,7 @@ describe("grafana_update_dashboard tool", () => {
     test("returns error when panel param missing", async () => {
       getDashboardMock.mockResolvedValueOnce(makeDashboardResponse());
 
-      const tool = createUpdateDashboardToolFactory(makeConfig())({} as never);
+      const tool = createUpdateDashboardToolFactory(makeRegistry())({} as never);
       const result = await tool!.execute("call-4", {
         uid: "dash-1",
         operation: "add_panel",
@@ -184,7 +195,7 @@ describe("grafana_update_dashboard tool", () => {
       getDashboardMock.mockResolvedValueOnce(makeDashboardResponse());
       setupSaveMock();
 
-      const tool = createUpdateDashboardToolFactory(makeConfig())({} as never);
+      const tool = createUpdateDashboardToolFactory(makeRegistry())({} as never);
       const result = await tool!.execute("call-5", {
         uid: "dash-1",
         operation: "remove_panel",
@@ -201,7 +212,7 @@ describe("grafana_update_dashboard tool", () => {
       getDashboardMock.mockResolvedValueOnce(makeDashboardResponse());
       setupSaveMock();
 
-      const tool = createUpdateDashboardToolFactory(makeConfig())({} as never);
+      const tool = createUpdateDashboardToolFactory(makeRegistry())({} as never);
       const result = await tool!.execute("call-6", {
         uid: "dash-1",
         operation: "remove_panel",
@@ -216,7 +227,7 @@ describe("grafana_update_dashboard tool", () => {
     test("returns error with available panels when not found", async () => {
       getDashboardMock.mockResolvedValueOnce(makeDashboardResponse());
 
-      const tool = createUpdateDashboardToolFactory(makeConfig())({} as never);
+      const tool = createUpdateDashboardToolFactory(makeRegistry())({} as never);
       const result = await tool!.execute("call-7", {
         uid: "dash-1",
         operation: "remove_panel",
@@ -238,7 +249,7 @@ describe("grafana_update_dashboard tool", () => {
       getDashboardMock.mockResolvedValueOnce(makeDashboardResponse());
       setupSaveMock();
 
-      const tool = createUpdateDashboardToolFactory(makeConfig())({} as never);
+      const tool = createUpdateDashboardToolFactory(makeRegistry())({} as never);
       const result = await tool!.execute("call-8", {
         uid: "dash-1",
         operation: "update_panel",
@@ -261,7 +272,7 @@ describe("grafana_update_dashboard tool", () => {
       setupSaveMock();
 
       const newTargets = [{ refId: "A", expr: "new_query" }];
-      const tool = createUpdateDashboardToolFactory(makeConfig())({} as never);
+      const tool = createUpdateDashboardToolFactory(makeRegistry())({} as never);
       const result = await tool!.execute("call-9", {
         uid: "dash-1",
         operation: "update_panel",
@@ -279,7 +290,7 @@ describe("grafana_update_dashboard tool", () => {
     test("returns error when panel not found", async () => {
       getDashboardMock.mockResolvedValueOnce(makeDashboardResponse());
 
-      const tool = createUpdateDashboardToolFactory(makeConfig())({} as never);
+      const tool = createUpdateDashboardToolFactory(makeRegistry())({} as never);
       const result = await tool!.execute("call-10", {
         uid: "dash-1",
         operation: "update_panel",
@@ -299,7 +310,7 @@ describe("grafana_update_dashboard tool", () => {
       getDashboardMock.mockResolvedValueOnce(makeDashboardResponse());
       setupSaveMock();
 
-      const tool = createUpdateDashboardToolFactory(makeConfig())({} as never);
+      const tool = createUpdateDashboardToolFactory(makeRegistry())({} as never);
       const result = await tool!.execute("call-11", {
         uid: "dash-1",
         operation: "update_metadata",
@@ -326,7 +337,7 @@ describe("grafana_update_dashboard tool", () => {
       getDashboardMock.mockResolvedValueOnce(makeDashboardResponse());
       setupSaveMock();
 
-      const tool = createUpdateDashboardToolFactory(makeConfig())({} as never);
+      const tool = createUpdateDashboardToolFactory(makeRegistry())({} as never);
       await tool!.execute("call-12", {
         uid: "dash-1",
         operation: "update_metadata",
@@ -346,7 +357,7 @@ describe("grafana_update_dashboard tool", () => {
     test("rejects provisioned dashboard with clear error", async () => {
       getDashboardMock.mockResolvedValueOnce(makeDashboardResponse({ provisioned: true }));
 
-      const tool = createUpdateDashboardToolFactory(makeConfig())({} as never);
+      const tool = createUpdateDashboardToolFactory(makeRegistry())({} as never);
       const result = await tool!.execute("call-13", {
         uid: "dash-1",
         operation: "update_metadata",
@@ -365,7 +376,7 @@ describe("grafana_update_dashboard tool", () => {
     test("unknown operation returns error", async () => {
       getDashboardMock.mockResolvedValueOnce(makeDashboardResponse());
 
-      const tool = createUpdateDashboardToolFactory(makeConfig())({} as never);
+      const tool = createUpdateDashboardToolFactory(makeRegistry())({} as never);
       const result = await tool!.execute("call-14", {
         uid: "dash-1",
         operation: "invalid_op",
@@ -379,7 +390,7 @@ describe("grafana_update_dashboard tool", () => {
       getDashboardMock.mockResolvedValueOnce(makeDashboardResponse());
       createDashboardMock.mockRejectedValueOnce(new Error("Grafana API error 500"));
 
-      const tool = createUpdateDashboardToolFactory(makeConfig())({} as never);
+      const tool = createUpdateDashboardToolFactory(makeRegistry())({} as never);
       const result = await tool!.execute("call-15", {
         uid: "dash-1",
         operation: "update_metadata",
@@ -393,7 +404,7 @@ describe("grafana_update_dashboard tool", () => {
     test("dashboard not found returns error", async () => {
       getDashboardMock.mockRejectedValueOnce(new Error("Not found: get dashboard by uid bad-uid"));
 
-      const tool = createUpdateDashboardToolFactory(makeConfig())({} as never);
+      const tool = createUpdateDashboardToolFactory(makeRegistry())({} as never);
       const result = await tool!.execute("call-16", {
         uid: "bad-uid",
         operation: "update_metadata",
@@ -412,7 +423,7 @@ describe("grafana_update_dashboard tool", () => {
       getDashboardMock.mockResolvedValueOnce(makeDashboardResponse());
       deleteDashboardMock.mockResolvedValueOnce({ title: "Test Dashboard" });
 
-      const tool = createUpdateDashboardToolFactory(makeConfig())({} as never);
+      const tool = createUpdateDashboardToolFactory(makeRegistry())({} as never);
       const result = await tool!.execute("call-17", {
         uid: "dash-1",
         operation: "delete",
@@ -431,7 +442,7 @@ describe("grafana_update_dashboard tool", () => {
       getDashboardMock.mockResolvedValueOnce(makeDashboardResponse());
       deleteDashboardMock.mockRejectedValueOnce(new Error("Grafana API error 403"));
 
-      const tool = createUpdateDashboardToolFactory(makeConfig())({} as never);
+      const tool = createUpdateDashboardToolFactory(makeRegistry())({} as never);
       const result = await tool!.execute("call-18", {
         uid: "dash-1",
         operation: "delete",
@@ -445,7 +456,7 @@ describe("grafana_update_dashboard tool", () => {
       getDashboardMock.mockResolvedValueOnce(makeDashboardResponse({ provisioned: true }));
       deleteDashboardMock.mockResolvedValueOnce({ title: "Provisioned Dashboard" });
 
-      const tool = createUpdateDashboardToolFactory(makeConfig())({} as never);
+      const tool = createUpdateDashboardToolFactory(makeRegistry())({} as never);
       const result = await tool!.execute("call-19", {
         uid: "dash-1",
         operation: "delete",
@@ -467,7 +478,7 @@ describe("grafana_update_dashboard tool", () => {
         data: { result: [{ metric: {}, value: [1700000000, "42.5"] }] },
       });
 
-      const tool = createUpdateDashboardToolFactory(makeConfig())({} as never);
+      const tool = createUpdateDashboardToolFactory(makeRegistry())({} as never);
       const result = await tool!.execute("call-v1", {
         uid: "dash-1",
         operation: "add_panel",
@@ -499,7 +510,7 @@ describe("grafana_update_dashboard tool", () => {
       setupSaveMock();
       queryPrometheusMock.mockRejectedValueOnce(new Error('parse error at char 5: unexpected ")"'));
 
-      const tool = createUpdateDashboardToolFactory(makeConfig())({} as never);
+      const tool = createUpdateDashboardToolFactory(makeRegistry())({} as never);
       const result = await tool!.execute("call-v2", {
         uid: "dash-1",
         operation: "add_panel",
@@ -529,7 +540,7 @@ describe("grafana_update_dashboard tool", () => {
       getDashboardMock.mockResolvedValueOnce(makeDashboardResponse());
       setupSaveMock();
 
-      const tool = createUpdateDashboardToolFactory(makeConfig())({} as never);
+      const tool = createUpdateDashboardToolFactory(makeRegistry())({} as never);
       const result = await tool!.execute("call-v3", {
         uid: "dash-1",
         operation: "add_panel",
@@ -562,7 +573,7 @@ describe("grafana_update_dashboard tool", () => {
         data: { result: [] },
       });
 
-      const tool = createUpdateDashboardToolFactory(makeConfig())({} as never);
+      const tool = createUpdateDashboardToolFactory(makeRegistry())({} as never);
       const result = await tool!.execute("call-v4", {
         uid: "dash-1",
         operation: "add_panel",
@@ -583,7 +594,7 @@ describe("grafana_update_dashboard tool", () => {
       getDashboardMock.mockResolvedValueOnce(makeDashboardResponse());
       setupSaveMock();
 
-      const tool = createUpdateDashboardToolFactory(makeConfig())({} as never);
+      const tool = createUpdateDashboardToolFactory(makeRegistry())({} as never);
       const result = await tool!.execute("call-v5", {
         uid: "dash-1",
         operation: "add_panel",
@@ -608,7 +619,7 @@ describe("grafana_update_dashboard tool", () => {
         data: { result: [{ metric: {}, value: [1700000000, "7"] }] },
       });
 
-      const tool = createUpdateDashboardToolFactory(makeConfig())({} as never);
+      const tool = createUpdateDashboardToolFactory(makeRegistry())({} as never);
       const result = await tool!.execute("call-v6", {
         uid: "dash-1",
         operation: "update_panel",
@@ -632,7 +643,7 @@ describe("grafana_update_dashboard tool", () => {
       getDashboardMock.mockResolvedValueOnce(makeDashboardResponse());
       setupSaveMock();
 
-      const tool = createUpdateDashboardToolFactory(makeConfig())({} as never);
+      const tool = createUpdateDashboardToolFactory(makeRegistry())({} as never);
       const result = await tool!.execute("call-v7", {
         uid: "dash-1",
         operation: "update_panel",

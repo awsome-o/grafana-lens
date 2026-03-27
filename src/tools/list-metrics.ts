@@ -7,8 +7,9 @@
  */
 
 import { jsonResult, readStringParam } from "../sdk-compat.js";
-import { GrafanaClient, escapeRegex } from "../grafana-client.js";
-import type { ValidatedGrafanaLensConfig } from "../config.js";
+import { escapeRegex } from "../grafana-client.js";
+import type { GrafanaClientRegistry } from "../grafana-client-registry.js";
+import { instanceProperties } from "./instance-param.js";
 import type { CustomMetricsStore } from "../services/custom-metrics-store.js";
 import { KNOWN_METRICS_MAP, type PrometheusMetricType } from "../metric-definitions.js";
 
@@ -181,15 +182,9 @@ function buildCategorySummary(entries: Array<{ category?: MetricCategory }>): Re
 }
 
 export function createListMetricsToolFactory(
-  config: ValidatedGrafanaLensConfig,
+  registry: GrafanaClientRegistry,
   getCustomMetricsStore?: () => CustomMetricsStore | null,
 ) {
-  const client = new GrafanaClient({
-    url: config.grafana.url,
-    apiKey: config.grafana.apiKey,
-    orgId: config.grafana.orgId,
-  });
-
   return (_ctx: unknown) => ({
     name: "grafana_list_metrics",
     label: "List Metrics",
@@ -205,6 +200,7 @@ export function createListMetricsToolFactory(
     parameters: {
       type: "object" as const,
       properties: {
+        ...instanceProperties(registry),
         datasourceUid: {
           type: "string",
           description: "UID of the Prometheus datasource (from grafana_explore_datasources)",
@@ -238,6 +234,7 @@ export function createListMetricsToolFactory(
       required: ["datasourceUid"],
     },
     async execute(_toolCallId: string, params: Record<string, unknown>) {
+      const client = registry.get(readStringParam(params, "instance"));
       const datasourceUid = readStringParam(params, "datasourceUid", { required: true, label: "Datasource UID" });
       let prefix = readStringParam(params, "prefix");
       const search = readStringParam(params, "search");

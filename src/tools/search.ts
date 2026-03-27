@@ -10,9 +10,9 @@
  */
 
 import { jsonResult, readNumberParam, readStringParam } from "../sdk-compat.js";
-import { GrafanaClient } from "../grafana-client.js";
+import { GrafanaClientRegistry } from "../grafana-client-registry.js";
+import { instanceProperties } from "./instance-param.js";
 import type { DashboardSearchResult } from "../grafana-client.js";
-import type { ValidatedGrafanaLensConfig } from "../config.js";
 
 /**
  * Extract updatedAt and panelCount from a full dashboard response.
@@ -79,13 +79,7 @@ async function fetchDetailsInBatches(
   return results;
 }
 
-export function createSearchToolFactory(config: ValidatedGrafanaLensConfig) {
-  const client = new GrafanaClient({
-    url: config.grafana.url,
-    apiKey: config.grafana.apiKey,
-    orgId: config.grafana.orgId,
-  });
-
+export function createSearchToolFactory(registry: GrafanaClientRegistry) {
   return (_ctx: unknown) => ({
     name: "grafana_search",
     label: "Search Dashboards",
@@ -100,6 +94,7 @@ export function createSearchToolFactory(config: ValidatedGrafanaLensConfig) {
     parameters: {
       type: "object" as const,
       properties: {
+        ...instanceProperties(registry),
         query: {
           type: "string",
           description: "Search query (matches dashboard titles, e.g., 'cost', 'agent overview')",
@@ -132,6 +127,7 @@ export function createSearchToolFactory(config: ValidatedGrafanaLensConfig) {
       required: ["query"],
     },
     async execute(_toolCallId: string, params: Record<string, unknown>) {
+      const client = registry.get(readStringParam(params, "instance"));
       const query = readStringParam(params, "query", { required: true, label: "Search query" });
       const tags = params.tags as string[] | undefined;
       const starred = params.starred === true ? true : undefined;

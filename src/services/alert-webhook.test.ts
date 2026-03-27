@@ -101,10 +101,13 @@ describe("AlertStore", () => {
 
 function makeConfig(overrides?: Partial<ValidatedGrafanaLensConfig>): ValidatedGrafanaLensConfig {
   return {
-    grafana: { url: "http://localhost:3000", apiKey: "test-key" },
+    grafana: {
+      instances: { default: { url: "http://localhost:3000", apiKey: "test-key" } },
+      defaultInstance: "default",
+    },
     proactive: { enabled: true },
     ...overrides,
-  };
+  } as ValidatedGrafanaLensConfig;
 }
 
 function makeCtx() {

@@ -7,13 +7,35 @@
  * Config precedence: explicit plugin config > environment variables > defaults.
  * Env vars follow Grafana community conventions (GRAFANA_URL, GRAFANA_SERVICE_ACCOUNT_TOKEN)
  * and OpenTelemetry conventions (OTEL_EXPORTER_OTLP_ENDPOINT, OTEL_EXPORTER_OTLP_HEADERS).
+ *
+ * Supports two grafana config formats:
+ *   1. Legacy single instance:  { url, apiKey, orgId }
+ *   2. Named instances:         { instances: [{ name, url, apiKey, orgId }], default? }
+ * Both normalize to the same internal shape: { instances: Record<name, config>, defaultInstance }.
  */
+
+// ── Grafana instance types ────────────────────────────────────────────
+
+/** A single Grafana instance (parsed — fields may still be missing). */
+export type GrafanaInstanceConfig = {
+  url?: string;
+  apiKey?: string;
+  orgId?: number;
+};
+
+/** A validated instance — url and apiKey confirmed present. */
+export type ValidatedGrafanaInstanceConfig = {
+  url: string;
+  apiKey: string;
+  orgId?: number;
+};
+
+// ── Main config types ─────────────────────────────────────────────────
 
 export type GrafanaLensConfig = {
   grafana: {
-    url?: string;
-    apiKey?: string;
-    orgId?: number;
+    instances: Record<string, GrafanaInstanceConfig>;
+    defaultInstance: string;
   };
   metrics?: {
     enabled?: boolean;
@@ -45,27 +67,39 @@ export type GrafanaLensConfig = {
 };
 
 /**
- * Validated config with required Grafana credentials resolved.
- * Returned by {@link validateConfig} — safe to use for API calls.
+ * Validated config — at least the default instance has url + apiKey.
+ * Only instances with valid credentials are included.
  */
-export type ValidatedGrafanaLensConfig = GrafanaLensConfig & {
-  grafana: { url: string; apiKey: string };
+export type ValidatedGrafanaLensConfig = Omit<GrafanaLensConfig, "grafana"> & {
+  grafana: {
+    instances: Record<string, ValidatedGrafanaInstanceConfig>;
+    defaultInstance: string;
+  };
 };
 
 /**
- * Validate that required Grafana credentials are present.
- * Call this at tool/service runtime, NOT during plugin discovery.
+ * Validate that the default instance has credentials and filter out incomplete instances.
  */
 export function validateConfig(
   config: GrafanaLensConfig,
 ): { valid: true; config: ValidatedGrafanaLensConfig } | { valid: false; errors: string[] } {
   const errors: string[] = [];
-  if (!config.grafana.url) {
+  const { instances, defaultInstance } = config.grafana;
+  const defaultInst = instances[defaultInstance];
+
+  if (!defaultInst) {
+    errors.push(
+      `Default Grafana instance "${defaultInstance}" not found in configured instances.`,
+    );
+    return { valid: false, errors };
+  }
+
+  if (!defaultInst.url) {
     errors.push(
       "grafana.url is required. Set it in plugin config or via GRAFANA_URL environment variable.",
     );
   }
-  if (!config.grafana.apiKey) {
+  if (!defaultInst.apiKey) {
     errors.push(
       "grafana.apiKey is required. Set it in plugin config or via GRAFANA_SERVICE_ACCOUNT_TOKEN environment variable.",
     );
@@ -73,7 +107,22 @@ export function validateConfig(
   if (errors.length > 0) {
     return { valid: false, errors };
   }
-  return { valid: true, config: config as ValidatedGrafanaLensConfig };
+
+  // Keep only instances that have both url + apiKey. Default is guaranteed valid above.
+  const validInstances: Record<string, ValidatedGrafanaInstanceConfig> = {};
+  for (const [name, inst] of Object.entries(instances)) {
+    if (inst.url && inst.apiKey) {
+      validInstances[name] = { url: inst.url, apiKey: inst.apiKey, orgId: inst.orgId };
+    }
+  }
+
+  return {
+    valid: true,
+    config: {
+      ...config,
+      grafana: { instances: validInstances, defaultInstance },
+    },
+  };
 }
 
 /**
@@ -117,16 +166,79 @@ export function parseOtlpHeadersEnv(raw: string): { headers: Record<string, stri
   return { headers, skipped };
 }
 
+// ── Format detection + normalization ──────────────────────────────────
+
+/**
+ * Detect whether the raw grafana config is legacy single-instance or multi-instance.
+ *
+ * Legacy:  { url: "...", apiKey: "...", orgId: 1 }
+ * Multi:   { instances: [{ name, url, apiKey, orgId }], default?: "name" }
+ */
+function isMultiInstanceFormat(grafana: Record<string, unknown>): boolean {
+  return Array.isArray(grafana.instances);
+}
+
+/** Parse a single Grafana instance from raw config, applying env var fallback for the default. */
+function parseSingleInstance(
+  raw: Record<string, unknown>,
+  applyEnvFallback: boolean,
+): GrafanaInstanceConfig {
+  let url = raw.url as string | undefined;
+  let apiKey = raw.apiKey as string | undefined;
+
+  if (applyEnvFallback) {
+    url = url ?? process.env.GRAFANA_URL;
+    apiKey = apiKey ?? process.env.GRAFANA_SERVICE_ACCOUNT_TOKEN;
+  }
+
+  return {
+    url: url?.replace(/\/+$/, ""),
+    apiKey,
+    orgId: (raw.orgId as number) ?? 1,
+  };
+}
+
+/** Normalize multi-instance array format to internal record. */
+function parseMultiInstances(
+  grafana: Record<string, unknown>,
+): { instances: Record<string, GrafanaInstanceConfig>; defaultInstance: string } {
+  const rawInstances = grafana.instances as Array<Record<string, unknown>>;
+  const instances: Record<string, GrafanaInstanceConfig> = {};
+  let firstName: string | undefined;
+
+  for (const entry of rawInstances) {
+    const name = entry.name as string;
+    if (!name) continue;
+    if (!firstName) firstName = name;
+
+    // Env var fallback applies only to the explicit default or the first entry
+    const isDefault =
+      grafana.default === name || (!grafana.default && name === firstName);
+    instances[name] = parseSingleInstance(entry, isDefault);
+  }
+
+  const defaultInstance = (grafana.default as string) ?? firstName ?? "default";
+  return { instances, defaultInstance };
+}
+
 export function parseConfig(raw?: Record<string, unknown>): GrafanaLensConfig & { _warnings?: string[] } {
   const grafana = (raw?.grafana as Record<string, unknown>) ?? {};
 
-  // Resolve URL: explicit config > GRAFANA_URL env var
-  const url = (grafana.url as string) ?? process.env.GRAFANA_URL;
-  // Resolve API key: explicit config > GRAFANA_SERVICE_ACCOUNT_TOKEN env var
-  const apiKey =
-    (grafana.apiKey as string) ?? process.env.GRAFANA_SERVICE_ACCOUNT_TOKEN;
+  // ── Normalize grafana config to { instances, defaultInstance } ───────
+  let grafanaNormalized: { instances: Record<string, GrafanaInstanceConfig>; defaultInstance: string };
 
-  // Resolve OTLP config: explicit config > OTEL_EXPORTER_OTLP_* env vars > defaults
+  if (isMultiInstanceFormat(grafana)) {
+    grafanaNormalized = parseMultiInstances(grafana);
+  } else {
+    // Legacy single-instance format: normalize to a single "default" entry
+    const inst = parseSingleInstance(grafana, true);
+    grafanaNormalized = {
+      instances: { default: inst },
+      defaultInstance: "default",
+    };
+  }
+
+  // ── Resolve OTLP config: explicit config > OTEL_EXPORTER_OTLP_* env vars > defaults ──
   const otlpRaw = (raw?.otlp as Record<string, unknown>) ?? {};
   const otlpEndpointEnv = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
   const otlpHeadersEnv = process.env.OTEL_EXPORTER_OTLP_HEADERS;
@@ -153,11 +265,7 @@ export function parseConfig(raw?: Record<string, unknown>): GrafanaLensConfig & 
   }
 
   return {
-    grafana: {
-      url: url?.replace(/\/+$/, ""),
-      apiKey,
-      orgId: (grafana.orgId as number) ?? 1,
-    },
+    grafana: grafanaNormalized,
     metrics: {
       enabled: (raw?.metrics as Record<string, unknown>)?.enabled !== false,
     },

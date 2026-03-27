@@ -13,6 +13,7 @@ vi.mock("../grafana-client.js", () => ({
     getTrace = getTraceMock;
     getDashboard = getDashboardMock;
     listDatasources = listDatasourcesMock;
+    getUrl() { return "http://localhost:3000"; }
   },
 }));
 
@@ -20,9 +21,19 @@ vi.mock("../grafana-client.js", () => ({
 
 import { createQueryTracesToolFactory, MAX_SEARCH_TRACES, MAX_TRACE_SPANS } from "./query-traces.js";
 import type { ValidatedGrafanaLensConfig } from "../config.js";
+import { GrafanaClientRegistry } from "../grafana-client-registry.js";
 
 function makeConfig(): ValidatedGrafanaLensConfig {
-  return { grafana: { url: "http://localhost:3000", apiKey: "test-key" } };
+  return {
+    grafana: {
+      instances: { default: { url: "http://localhost:3000", apiKey: "test-key" } },
+      defaultInstance: "default",
+    },
+  } as ValidatedGrafanaLensConfig;
+}
+
+function makeRegistry(): GrafanaClientRegistry {
+  return new GrafanaClientRegistry(makeConfig());
 }
 
 function getTextContent(result: { content: Array<{ type: string; text?: string }> }): string {
@@ -101,7 +112,7 @@ describe("grafana_query_traces tool", () => {
   test("search returns formatted trace summaries", async () => {
     searchTracesMock.mockResolvedValueOnce(makeSearchResult(3));
 
-    const tool = createQueryTracesToolFactory(makeConfig())({} as never);
+    const tool = createQueryTracesToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-1", {
       datasourceUid: "tempo1",
       query: '{ resource.service.name = "openclaw" }',
@@ -126,7 +137,7 @@ describe("grafana_query_traces tool", () => {
   test("search truncates at MAX_SEARCH_TRACES", async () => {
     searchTracesMock.mockResolvedValueOnce(makeSearchResult(60));
 
-    const tool = createQueryTracesToolFactory(makeConfig())({} as never);
+    const tool = createQueryTracesToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-1", {
       datasourceUid: "tempo1",
       query: "{ }",
@@ -144,7 +155,7 @@ describe("grafana_query_traces tool", () => {
   test("search with results includes correlationHint", async () => {
     searchTracesMock.mockResolvedValueOnce(makeSearchResult(3));
 
-    const tool = createQueryTracesToolFactory(makeConfig())({} as never);
+    const tool = createQueryTracesToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-1", {
       datasourceUid: "tempo1",
       query: '{ resource.service.name = "openclaw" }',
@@ -161,7 +172,7 @@ describe("grafana_query_traces tool", () => {
   test("search with no results omits correlationHint", async () => {
     searchTracesMock.mockResolvedValueOnce({ traces: [] });
 
-    const tool = createQueryTracesToolFactory(makeConfig())({} as never);
+    const tool = createQueryTracesToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-1", {
       datasourceUid: "tempo1",
       query: '{ resource.service.name = "nonexistent" }',
@@ -176,7 +187,7 @@ describe("grafana_query_traces tool", () => {
     getTraceMock.mockResolvedValueOnce(makeTraceResult(3));
     const traceId = "abc123def456" + "0".repeat(20);
 
-    const tool = createQueryTracesToolFactory(makeConfig())({} as never);
+    const tool = createQueryTracesToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-1", {
       datasourceUid: "tempo1",
       query: traceId,
@@ -193,7 +204,7 @@ describe("grafana_query_traces tool", () => {
   test("get trace returns flattened spans with resolved attributes", async () => {
     getTraceMock.mockResolvedValueOnce(makeTraceResult(3));
 
-    const tool = createQueryTracesToolFactory(makeConfig())({} as never);
+    const tool = createQueryTracesToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-1", {
       datasourceUid: "tempo1",
       query: "abc123def456" + "0".repeat(20),
@@ -224,7 +235,7 @@ describe("grafana_query_traces tool", () => {
   test("get trace truncates at MAX_TRACE_SPANS", async () => {
     getTraceMock.mockResolvedValueOnce(makeTraceResult(250));
 
-    const tool = createQueryTracesToolFactory(makeConfig())({} as never);
+    const tool = createQueryTracesToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-1", {
       datasourceUid: "tempo1",
       query: "abc123",
@@ -240,7 +251,7 @@ describe("grafana_query_traces tool", () => {
   test("status code mapping (0=unset, 1=ok, 2=error)", async () => {
     getTraceMock.mockResolvedValueOnce(makeTraceResult(3));
 
-    const tool = createQueryTracesToolFactory(makeConfig())({} as never);
+    const tool = createQueryTracesToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-1", {
       datasourceUid: "tempo1",
       query: "trace-id",
@@ -277,7 +288,7 @@ describe("grafana_query_traces tool", () => {
       ],
     });
 
-    const tool = createQueryTracesToolFactory(makeConfig())({} as never);
+    const tool = createQueryTracesToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-1", {
       datasourceUid: "tempo1",
       query: "t1",
@@ -308,7 +319,7 @@ describe("grafana_query_traces tool", () => {
     ]);
     searchTracesMock.mockResolvedValueOnce(makeSearchResult(2));
 
-    const tool = createQueryTracesToolFactory(makeConfig())({} as never);
+    const tool = createQueryTracesToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-1", {
       dashboardUid: "dash1",
       panelId: 5,
@@ -339,7 +350,7 @@ describe("grafana_query_traces tool", () => {
       { uid: "prom1", name: "Prometheus", type: "prometheus", isDefault: true },
     ]);
 
-    const tool = createQueryTracesToolFactory(makeConfig())({} as never);
+    const tool = createQueryTracesToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-1", {
       dashboardUid: "dash1",
       panelId: 1,
@@ -351,7 +362,7 @@ describe("grafana_query_traces tool", () => {
   });
 
   test("missing datasourceUid returns error", async () => {
-    const tool = createQueryTracesToolFactory(makeConfig())({} as never);
+    const tool = createQueryTracesToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-1", {
       query: "{ }",
     });
@@ -361,7 +372,7 @@ describe("grafana_query_traces tool", () => {
   });
 
   test("missing query returns error", async () => {
-    const tool = createQueryTracesToolFactory(makeConfig())({} as never);
+    const tool = createQueryTracesToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-1", {
       datasourceUid: "tempo1",
     });
@@ -373,7 +384,7 @@ describe("grafana_query_traces tool", () => {
   test("API error with guidance", async () => {
     searchTracesMock.mockRejectedValueOnce(new Error("Not found: search traces"));
 
-    const tool = createQueryTracesToolFactory(makeConfig())({} as never);
+    const tool = createQueryTracesToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-1", {
       datasourceUid: "bad-uid",
       query: "{ }",
@@ -388,7 +399,7 @@ describe("grafana_query_traces tool", () => {
   test("default time range applied for search", async () => {
     searchTracesMock.mockResolvedValueOnce(makeSearchResult(0));
 
-    const tool = createQueryTracesToolFactory(makeConfig())({} as never);
+    const tool = createQueryTracesToolFactory(makeRegistry())({} as never);
     await tool!.execute("call-1", {
       datasourceUid: "tempo1",
       query: "{ }",
@@ -408,7 +419,7 @@ describe("grafana_query_traces tool", () => {
   test("search with no results returns hint", async () => {
     searchTracesMock.mockResolvedValueOnce({ traces: [] });
 
-    const tool = createQueryTracesToolFactory(makeConfig())({} as never);
+    const tool = createQueryTracesToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-1", {
       datasourceUid: "tempo1",
       query: '{ resource.service.name = "nonexistent" }',
@@ -423,7 +434,7 @@ describe("grafana_query_traces tool", () => {
   test("search passes minDuration and maxDuration", async () => {
     searchTracesMock.mockResolvedValueOnce(makeSearchResult(1));
 
-    const tool = createQueryTracesToolFactory(makeConfig())({} as never);
+    const tool = createQueryTracesToolFactory(makeRegistry())({} as never);
     await tool!.execute("call-1", {
       datasourceUid: "tempo1",
       query: "{ }",
@@ -487,7 +498,7 @@ describe("grafana_query_traces tool", () => {
       ],
     });
 
-    const tool = createQueryTracesToolFactory(makeConfig())({} as never);
+    const tool = createQueryTracesToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-1", {
       datasourceUid: "tempo1",
       query: "t1",
@@ -544,7 +555,7 @@ describe("grafana_query_traces tool", () => {
       ],
     });
 
-    const tool = createQueryTracesToolFactory(makeConfig())({} as never);
+    const tool = createQueryTracesToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-1", {
       datasourceUid: "tempo1",
       query: "5382741c3512420de980551e3d408fc3",
@@ -598,7 +609,7 @@ describe("grafana_query_traces tool", () => {
       ],
     });
 
-    const tool = createQueryTracesToolFactory(makeConfig())({} as never);
+    const tool = createQueryTracesToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-1", {
       datasourceUid: "tempo1",
       query: "t1",
@@ -634,7 +645,7 @@ describe("grafana_query_traces tool", () => {
       ],
     });
 
-    const tool = createQueryTracesToolFactory(makeConfig())({} as never);
+    const tool = createQueryTracesToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-1", {
       datasourceUid: "tempo1",
       query: "abc123def456" + "0".repeat(20),

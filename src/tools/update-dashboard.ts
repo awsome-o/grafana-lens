@@ -17,8 +17,9 @@
  */
 
 import { jsonResult, readStringParam, readNumberParam } from "../sdk-compat.js";
-import { GrafanaClient } from "../grafana-client.js";
-import type { ValidatedGrafanaLensConfig } from "../config.js";
+import { GrafanaClientRegistry } from "../grafana-client-registry.js";
+import type { GrafanaClient } from "../grafana-client.js";
+import { instanceProperties } from "./instance-param.js";
 
 type Panel = Record<string, unknown>;
 type GridPos = { x: number; y: number; w: number; h: number };
@@ -41,13 +42,7 @@ export type QueryValidation = {
   skippedReason?: string;
 };
 
-export function createUpdateDashboardToolFactory(config: ValidatedGrafanaLensConfig) {
-  const client = new GrafanaClient({
-    url: config.grafana.url,
-    apiKey: config.grafana.apiKey,
-    orgId: config.grafana.orgId,
-  });
-
+export function createUpdateDashboardToolFactory(registry: GrafanaClientRegistry) {
   return (_ctx: unknown) => ({
     name: "grafana_update_dashboard",
     label: "Update Dashboard",
@@ -64,6 +59,7 @@ export function createUpdateDashboardToolFactory(config: ValidatedGrafanaLensCon
     parameters: {
       type: "object" as const,
       properties: {
+        ...instanceProperties(registry),
         uid: {
           type: "string",
           description: "Dashboard UID (from grafana_get_dashboard or grafana_search)",
@@ -112,6 +108,7 @@ export function createUpdateDashboardToolFactory(config: ValidatedGrafanaLensCon
       required: ["uid", "operation"],
     },
     async execute(_toolCallId: string, params: Record<string, unknown>) {
+      const client = registry.get(readStringParam(params, "instance"));
       const uid = readStringParam(params, "uid", { required: true, label: "Dashboard UID" });
       const operation = readStringParam(params, "operation", { required: true, label: "Operation" });
 

@@ -9,25 +9,69 @@
     "additionalProperties": false,
     "properties": {
       "grafana": {
-        "type": "object",
-        "description": "Grafana connection settings",
-        "additionalProperties": false,
-        "properties": {
-          "url": {
-            "type": "string",
-            "description": "Grafana instance URL",
-            "default": "http://localhost:3000"
+        "description": "Grafana connection settings — single instance or named instances",
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Single Grafana instance (legacy format)",
+            "additionalProperties": false,
+            "properties": {
+              "url": {
+                "type": "string",
+                "description": "Grafana instance URL",
+                "default": "http://localhost:3000"
+              },
+              "apiKey": {
+                "type": "string",
+                "description": "Grafana service account token (glsa_...)"
+              },
+              "orgId": {
+                "type": "number",
+                "description": "Grafana organization ID",
+                "default": 1
+              }
+            }
           },
-          "apiKey": {
-            "type": "string",
-            "description": "Grafana service account token (glsa_...)"
-          },
-          "orgId": {
-            "type": "number",
-            "description": "Grafana organization ID",
-            "default": 1
+          {
+            "type": "object",
+            "description": "Multiple named Grafana instances",
+            "additionalProperties": false,
+            "properties": {
+              "instances": {
+                "type": "array",
+                "description": "Named Grafana instances (first is default unless 'default' is set)",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "description": "Instance identifier (e.g., 'dev', 'staging', 'prod')"
+                    },
+                    "url": {
+                      "type": "string",
+                      "description": "Grafana instance URL"
+                    },
+                    "apiKey": {
+                      "type": "string",
+                      "description": "Grafana service account token (glsa_...)"
+                    },
+                    "orgId": {
+                      "type": "number",
+                      "description": "Grafana organization ID",
+                      "default": 1
+                    }
+                  },
+                  "required": ["name"]
+                }
+              },
+              "default": {
+                "type": "string",
+                "description": "Name of the default instance (defaults to first entry)"
+              }
+            },
+            "required": ["instances"]
           }
-        }
+        ]
       },
       "metrics": {
         "type": "object",

@@ -11,9 +11,10 @@
  */
 
 import { jsonResult, readStringParam } from "../sdk-compat.js";
-import { GrafanaClient } from "../grafana-client.js";
+import { GrafanaClientRegistry } from "../grafana-client-registry.js";
+import type { GrafanaClient } from "../grafana-client.js";
+import { instanceProperties } from "./instance-param.js";
 import { getQueryCapability } from "./explore-datasources.js";
-import type { ValidatedGrafanaLensConfig } from "../config.js";
 import type { DatasourceListItem } from "../grafana-client.js";
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -139,13 +140,7 @@ async function auditPanel(
 
 // ── Tool factory ───────────────────────────────────────────────────────
 
-export function createGetDashboardToolFactory(config: ValidatedGrafanaLensConfig) {
-  const client = new GrafanaClient({
-    url: config.grafana.url,
-    apiKey: config.grafana.apiKey,
-    orgId: config.grafana.orgId,
-  });
-
+export function createGetDashboardToolFactory(registry: GrafanaClientRegistry) {
   return (_ctx: unknown) => ({
     name: "grafana_get_dashboard",
     label: "Get Dashboard",
@@ -160,6 +155,7 @@ export function createGetDashboardToolFactory(config: ValidatedGrafanaLensConfig
     parameters: {
       type: "object" as const,
       properties: {
+        ...instanceProperties(registry),
         uid: {
           type: "string",
           description: "Dashboard UID (from grafana_create_dashboard or grafana_search result)",
@@ -177,6 +173,7 @@ export function createGetDashboardToolFactory(config: ValidatedGrafanaLensConfig
       required: ["uid"],
     },
     async execute(_toolCallId: string, params: Record<string, unknown>) {
+      const client = registry.get(readStringParam(params, "instance"));
       const uid = readStringParam(params, "uid", { required: true, label: "Dashboard UID" });
       const compact = typeof params.compact === "boolean" ? params.compact : false;
       const audit = typeof params.audit === "boolean" ? params.audit : false;

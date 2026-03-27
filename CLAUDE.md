@@ -103,6 +103,7 @@ All Grafana interaction is handled by the bundled `GrafanaClient` — no externa
 | Dashboard templates | 4 AI observability + 5 generic variable-based JSON files | All use `templating.list` for dropdown selectors; AI templates have log-to-trace correlation |
 | Alert rule provenance | `X-Disable-Provenance` header on creation | Agent-created rules remain editable in Grafana UI |
 | Config DX | Env var fallback: `GRAFANA_URL` + `GRAFANA_SERVICE_ACCOUNT_TOKEN` | Follows Grafana community conventions |
+| Multi-instance | Named instances via `grafana.instances[]` array, optional `instance` param on tools | Conditional: param only visible when >1 instance configured; smart default to first/named instance |
 | Metrics transport | OTLP HTTP push (`@opentelemetry/sdk-metrics`) | Aligns with LGTM stack; no scrape delay; immediate data availability |
 | Extension pattern | Follows diagnostics-otel exactly | Proven pattern, same Plugin SDK |
 
@@ -444,11 +445,20 @@ Full PromQL reference + alert-worthy conditions: see `skills/references/agent-me
       "openclaw-grafana-lens": {
         "enabled": true,
         "config": {
+          // Single instance (legacy — still works):
           "grafana": {
             "url": "http://localhost:3000",    // or set GRAFANA_URL env var
             "apiKey": "glsa_xxxxxxxxxxxx",     // or set GRAFANA_SERVICE_ACCOUNT_TOKEN env var
             "orgId": 1                         // optional, default 1
           },
+          // Multi-instance (new):
+          // "grafana": {
+          //   "instances": [
+          //     { "name": "dev", "url": "http://dev:3000", "apiKey": "glsa_dev_xxx" },
+          //     { "name": "prd", "url": "http://prd:3000", "apiKey": "glsa_prd_xxx" }
+          //   ],
+          //   "default": "dev"  // optional, first entry if omitted
+          // },
           "metrics": {
             "enabled": true                    // default true
           },

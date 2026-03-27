@@ -16,6 +16,7 @@ vi.mock("../grafana-client.js", async () => {
       queryPrometheusRange = queryPrometheusRangeMock;
       getDashboard = getDashboardMock;
       listDatasources = listDatasourcesMock;
+      getUrl() { return "http://localhost:3000"; }
     },
   };
 });
@@ -24,9 +25,19 @@ vi.mock("../grafana-client.js", async () => {
 
 import { createQueryToolFactory, calculateAutoStep, MAX_INSTANT_RESULTS, MAX_RANGE_SERIES } from "./query.js";
 import type { ValidatedGrafanaLensConfig } from "../config.js";
+import { GrafanaClientRegistry } from "../grafana-client-registry.js";
 
 function makeConfig(): ValidatedGrafanaLensConfig {
-  return { grafana: { url: "http://localhost:3000", apiKey: "test-key" } };
+  return {
+    grafana: {
+      instances: { default: { url: "http://localhost:3000", apiKey: "test-key" } },
+      defaultInstance: "default",
+    },
+  } as ValidatedGrafanaLensConfig;
+}
+
+function makeRegistry(): GrafanaClientRegistry {
+  return new GrafanaClientRegistry(makeConfig());
 }
 
 function getTextContent(result: { content: Array<{ type: string; text?: string }> }): string {
@@ -97,7 +108,7 @@ describe("grafana_query tool", () => {
       },
     });
 
-    const tool = createQueryToolFactory(makeConfig())({} as never);
+    const tool = createQueryToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-1", {
       datasourceUid: "prom1",
       expr: "up",
@@ -121,7 +132,7 @@ describe("grafana_query tool", () => {
       },
     });
 
-    const tool = createQueryToolFactory(makeConfig())({} as never);
+    const tool = createQueryToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-2", {
       datasourceUid: "prom1",
       expr: "up",
@@ -139,7 +150,7 @@ describe("grafana_query tool", () => {
   });
 
   test("range query without start returns error", async () => {
-    const tool = createQueryToolFactory(makeConfig())({} as never);
+    const tool = createQueryToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-3", {
       datasourceUid: "prom1",
       expr: "up",
@@ -161,7 +172,7 @@ describe("grafana_query tool", () => {
       },
     });
 
-    const tool = createQueryToolFactory(makeConfig())({} as never);
+    const tool = createQueryToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-auto-step", {
       datasourceUid: "prom1",
       expr: "up",
@@ -192,7 +203,7 @@ describe("grafana_query tool", () => {
       },
     });
 
-    const tool = createQueryToolFactory(makeConfig())({} as never);
+    const tool = createQueryToolFactory(makeRegistry())({} as never);
     await tool!.execute("call-default-end", {
       datasourceUid: "prom1",
       expr: "up",
@@ -216,7 +227,7 @@ describe("grafana_query tool", () => {
       },
     });
 
-    const tool = createQueryToolFactory(makeConfig())({} as never);
+    const tool = createQueryToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-explicit-step", {
       datasourceUid: "prom1",
       expr: "up",
@@ -243,7 +254,7 @@ describe("grafana_query tool", () => {
       },
     });
 
-    const tool = createQueryToolFactory(makeConfig())({} as never);
+    const tool = createQueryToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-health", {
       datasourceUid: "prom1",
       expr: "openclaw_lens_queue_depth",
@@ -268,7 +279,7 @@ describe("grafana_query tool", () => {
       },
     });
 
-    const tool = createQueryToolFactory(makeConfig())({} as never);
+    const tool = createQueryToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-no-health", {
       datasourceUid: "prom1",
       expr: "up",
@@ -292,7 +303,7 @@ describe("grafana_query tool", () => {
       data: { resultType: "vector", result: results },
     });
 
-    const tool = createQueryToolFactory(makeConfig())({} as never);
+    const tool = createQueryToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-trunc-instant", {
       datasourceUid: "prom1",
       expr: "{__name__=~'.+'}",
@@ -317,7 +328,7 @@ describe("grafana_query tool", () => {
       data: { resultType: "vector", result: results },
     });
 
-    const tool = createQueryToolFactory(makeConfig())({} as never);
+    const tool = createQueryToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-no-trunc-instant", {
       datasourceUid: "prom1",
       expr: "up",
@@ -340,7 +351,7 @@ describe("grafana_query tool", () => {
       data: { resultType: "matrix", result: series },
     });
 
-    const tool = createQueryToolFactory(makeConfig())({} as never);
+    const tool = createQueryToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-trunc-range", {
       datasourceUid: "prom1",
       expr: "{__name__=~'.+'}",
@@ -369,7 +380,7 @@ describe("grafana_query tool", () => {
       data: { resultType: "matrix", result: series },
     });
 
-    const tool = createQueryToolFactory(makeConfig())({} as never);
+    const tool = createQueryToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-no-trunc-range", {
       datasourceUid: "prom1",
       expr: "up",
@@ -399,7 +410,7 @@ describe("grafana_query tool", () => {
       },
     });
 
-    const tool = createQueryToolFactory(makeConfig())({} as never);
+    const tool = createQueryToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-chain", {
       datasourceUid: "prom-abc",
       expr: "error_rate",
@@ -419,7 +430,7 @@ describe("grafana_query tool", () => {
       },
     });
 
-    const tool = createQueryToolFactory(makeConfig())({} as never);
+    const tool = createQueryToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-chain-range", {
       datasourceUid: "prom-xyz",
       expr: "error_rate",
@@ -459,7 +470,7 @@ describe("grafana_query tool", () => {
       },
     });
 
-    const tool = createQueryToolFactory(makeConfig())({} as never);
+    const tool = createQueryToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-panel-chain", {
       dashboardUid: "sla-dash",
       panelId: 1,
@@ -473,7 +484,7 @@ describe("grafana_query tool", () => {
   test("API error caught and returned gracefully", async () => {
     queryPrometheusMock.mockRejectedValueOnce(new Error("query prometheus: 502"));
 
-    const tool = createQueryToolFactory(makeConfig())({} as never);
+    const tool = createQueryToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-4", {
       datasourceUid: "prom1",
       expr: "bad_expr{",
@@ -492,7 +503,7 @@ describe("grafana_query tool", () => {
       new Error('Grafana API error 400 (query prometheus): {"status":"error","errorType":"bad_data","error":"parse error: unclosed left parenthesis"}'),
     );
 
-    const tool = createQueryToolFactory(makeConfig())({} as never);
+    const tool = createQueryToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-guidance-syntax", {
       datasourceUid: "prom1",
       expr: "rate(my_metric[5m]",
@@ -508,7 +519,7 @@ describe("grafana_query tool", () => {
   test("timeout error includes narrowing guidance", async () => {
     queryPrometheusMock.mockRejectedValueOnce(new Error("context deadline exceeded"));
 
-    const tool = createQueryToolFactory(makeConfig())({} as never);
+    const tool = createQueryToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-guidance-timeout", {
       datasourceUid: "prom1",
       expr: "rate(http_total[5m])",
@@ -531,7 +542,7 @@ describe("grafana_query tool", () => {
       ],
     });
 
-    const tool = createQueryToolFactory(makeConfig())({} as never);
+    const tool = createQueryToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-infos", {
       datasourceUid: "prom1",
       expr: "rate(openclaw_lens_daily_cost_usd[5m])",
@@ -557,7 +568,7 @@ describe("grafana_query tool", () => {
       ],
     });
 
-    const tool = createQueryToolFactory(makeConfig())({} as never);
+    const tool = createQueryToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-infos-range", {
       datasourceUid: "prom1",
       expr: "rate(openclaw_lens_daily_cost_usd[5m])",
@@ -579,7 +590,7 @@ describe("grafana_query tool", () => {
       data: { resultType: "vector", result: [] },
     });
 
-    const tool = createQueryToolFactory(makeConfig())({} as never);
+    const tool = createQueryToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-empty", {
       datasourceUid: "prom1",
       expr: "nonexistent_metric_xyz",
@@ -599,7 +610,7 @@ describe("grafana_query tool", () => {
       data: { resultType: "matrix", result: [] },
     });
 
-    const tool = createQueryToolFactory(makeConfig())({} as never);
+    const tool = createQueryToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-empty-range", {
       datasourceUid: "prom1",
       expr: 'http_requests_total{job="nonexistent"}',
@@ -619,7 +630,7 @@ describe("grafana_query tool", () => {
   test("no guidance field when error is unknown", async () => {
     queryPrometheusMock.mockRejectedValueOnce(new Error("some completely unknown error"));
 
-    const tool = createQueryToolFactory(makeConfig())({} as never);
+    const tool = createQueryToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-unknown-err", {
       datasourceUid: "prom1",
       expr: "up",
@@ -660,7 +671,7 @@ describe("grafana_query tool", () => {
       },
     });
 
-    const tool = createQueryToolFactory(makeConfig())({} as never);
+    const tool = createQueryToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-panel", {
       dashboardUid: "cost-dash",
       panelId: 2,
@@ -699,7 +710,7 @@ describe("grafana_query tool", () => {
       data: { resultType: "vector", result: [{ metric: {}, value: [1700000000, "10"] }] },
     });
 
-    const tool = createQueryToolFactory(makeConfig())({} as never);
+    const tool = createQueryToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-panel-override", {
       dashboardUid: "cost-dash",
       panelId: 2,
@@ -731,7 +742,7 @@ describe("grafana_query tool", () => {
       { id: 2, uid: "loki1", name: "Loki", type: "loki", isDefault: false },
     ]);
 
-    const tool = createQueryToolFactory(makeConfig())({} as never);
+    const tool = createQueryToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-panel-loki", {
       dashboardUid: "log-dash",
       panelId: 3,
@@ -743,7 +754,7 @@ describe("grafana_query tool", () => {
   });
 
   test("missing both expr and dashboardUid returns helpful error", async () => {
-    const tool = createQueryToolFactory(makeConfig())({} as never);
+    const tool = createQueryToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-no-params", {});
 
     const parsed = JSON.parse(getTextContent(result));

@@ -13,6 +13,7 @@ vi.mock("../grafana-client.js", () => ({
     listFolders = listFoldersMock;
     createFolder = createFolderMock;
     queryPrometheus = queryPrometheusMock;
+    getUrl() { return "http://localhost:3000"; }
   },
 }));
 
@@ -20,9 +21,19 @@ vi.mock("../grafana-client.js", () => ({
 
 import { createAlertToolFactory, wrapExpression } from "./create-alert.js";
 import type { ValidatedGrafanaLensConfig } from "../config.js";
+import { GrafanaClientRegistry } from "../grafana-client-registry.js";
 
 function makeConfig(): ValidatedGrafanaLensConfig {
-  return { grafana: { url: "http://localhost:3000", apiKey: "test-key" } };
+  return {
+    grafana: {
+      instances: { default: { url: "http://localhost:3000", apiKey: "test-key" } },
+      defaultInstance: "default",
+    },
+  } as ValidatedGrafanaLensConfig;
+}
+
+function makeRegistry(): GrafanaClientRegistry {
+  return new GrafanaClientRegistry(makeConfig());
 }
 
 function getTextContent(result: { content: Array<{ type: string; text?: string }> }): string {
@@ -50,7 +61,7 @@ describe("grafana_create_alert tool", () => {
       folderUID: "auto-folder",
     });
 
-    const tool = createAlertToolFactory(makeConfig())({} as never);
+    const tool = createAlertToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-1", {
       title: "High Cost",
       datasourceUid: "prom1",
@@ -73,7 +84,7 @@ describe("grafana_create_alert tool", () => {
     ]);
     createAlertRuleMock.mockResolvedValueOnce({ uid: "alert-2", title: "Low CPU" });
 
-    const tool = createAlertToolFactory(makeConfig())({} as never);
+    const tool = createAlertToolFactory(makeRegistry())({} as never);
     await tool!.execute("call-2", {
       title: "Low CPU",
       datasourceUid: "prom1",
@@ -91,7 +102,7 @@ describe("grafana_create_alert tool", () => {
   test("uses explicit folderUid without listing folders", async () => {
     createAlertRuleMock.mockResolvedValueOnce({ uid: "alert-3", title: "Test" });
 
-    const tool = createAlertToolFactory(makeConfig())({} as never);
+    const tool = createAlertToolFactory(makeRegistry())({} as never);
     await tool!.execute("call-3", {
       title: "Test",
       datasourceUid: "prom1",
@@ -108,7 +119,7 @@ describe("grafana_create_alert tool", () => {
     listFoldersMock.mockResolvedValueOnce([{ uid: "f1", title: "Grafana Lens Alerts" }]);
     createAlertRuleMock.mockResolvedValueOnce({ uid: "alert-4", title: "Test" });
 
-    const tool = createAlertToolFactory(makeConfig())({} as never);
+    const tool = createAlertToolFactory(makeRegistry())({} as never);
     await tool!.execute("call-4", {
       title: "Test",
       datasourceUid: "prom1",
@@ -135,7 +146,7 @@ describe("grafana_create_alert tool", () => {
     listFoldersMock.mockResolvedValueOnce([]);
     createFolderMock.mockRejectedValueOnce(new Error("Grafana API error 500: internal"));
 
-    const tool = createAlertToolFactory(makeConfig())({} as never);
+    const tool = createAlertToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-5", {
       title: "Fail",
       datasourceUid: "prom1",
@@ -153,7 +164,7 @@ describe("grafana_create_alert tool", () => {
     listFoldersMock.mockResolvedValueOnce([{ uid: "f1", title: "Grafana Lens Alerts" }]);
     createAlertRuleMock.mockResolvedValueOnce({ uid: "alert-rate", title: "High Error Rate" });
 
-    const tool = createAlertToolFactory(makeConfig())({} as never);
+    const tool = createAlertToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-rate", {
       title: "High Error Rate",
       datasourceUid: "prom1",
@@ -180,7 +191,7 @@ describe("grafana_create_alert tool", () => {
     listFoldersMock.mockResolvedValueOnce([{ uid: "f1", title: "Grafana Lens Alerts" }]);
     createAlertRuleMock.mockResolvedValueOnce({ uid: "alert-inc", title: "High Token Increase" });
 
-    const tool = createAlertToolFactory(makeConfig())({} as never);
+    const tool = createAlertToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-inc", {
       title: "High Token Increase",
       datasourceUid: "prom1",
@@ -205,7 +216,7 @@ describe("grafana_create_alert tool", () => {
     listFoldersMock.mockResolvedValueOnce([{ uid: "f1", title: "Grafana Lens Alerts" }]);
     createAlertRuleMock.mockResolvedValueOnce({ uid: "alert-inst", title: "High Cost" });
 
-    const tool = createAlertToolFactory(makeConfig())({} as never);
+    const tool = createAlertToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-inst", {
       title: "High Cost",
       datasourceUid: "prom1",
@@ -226,7 +237,7 @@ describe("grafana_create_alert tool", () => {
     listFoldersMock.mockResolvedValueOnce([{ uid: "f1", title: "Grafana Lens Alerts" }]);
     createAlertRuleMock.mockResolvedValueOnce({ uid: "alert-rate-15m", title: "Slow Rate" });
 
-    const tool = createAlertToolFactory(makeConfig())({} as never);
+    const tool = createAlertToolFactory(makeRegistry())({} as never);
     await tool!.execute("call-rate-15m", {
       title: "Slow Rate",
       datasourceUid: "prom1",
@@ -246,7 +257,7 @@ describe("grafana_create_alert tool", () => {
     createAlertRuleMock.mockResolvedValueOnce({ uid: "alert-v1", title: "Cost Alert" });
     queryPrometheusMock.mockResolvedValueOnce({ data: { result: [{ value: [1234567890, "3.14"] }] } });
 
-    const tool = createAlertToolFactory(makeConfig())({} as never);
+    const tool = createAlertToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-v1", {
       title: "Cost Alert",
       datasourceUid: "prom1",
@@ -263,7 +274,7 @@ describe("grafana_create_alert tool", () => {
     createAlertRuleMock.mockResolvedValueOnce({ uid: "alert-v2", title: "Disk Alert" });
     queryPrometheusMock.mockResolvedValueOnce({ data: { result: [] } });
 
-    const tool = createAlertToolFactory(makeConfig())({} as never);
+    const tool = createAlertToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-v2", {
       title: "Disk Alert",
       datasourceUid: "prom1",
@@ -284,7 +295,7 @@ describe("grafana_create_alert tool", () => {
     createAlertRuleMock.mockResolvedValueOnce({ uid: "alert-v3", title: "Bad Query" });
     queryPrometheusMock.mockRejectedValueOnce(new Error("parse error: unexpected end of input"));
 
-    const tool = createAlertToolFactory(makeConfig())({} as never);
+    const tool = createAlertToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-v3", {
       title: "Bad Query",
       datasourceUid: "prom1",
@@ -303,7 +314,7 @@ describe("grafana_create_alert tool", () => {
     listFoldersMock.mockResolvedValueOnce([{ uid: "f1", title: "Grafana Lens Alerts" }]);
     createAlertRuleMock.mockResolvedValueOnce({ uid: "alert-ds", title: "DS Check" });
 
-    const tool = createAlertToolFactory(makeConfig())({} as never);
+    const tool = createAlertToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-ds", {
       title: "DS Check",
       datasourceUid: "my-prometheus",
@@ -320,7 +331,7 @@ describe("grafana_create_alert tool", () => {
     createAlertRuleMock.mockResolvedValueOnce({ uid: "alert-rv", title: "Rate Val" });
     queryPrometheusMock.mockResolvedValueOnce({ data: { result: [{ value: [0, "0.5"] }] } });
 
-    const tool = createAlertToolFactory(makeConfig())({} as never);
+    const tool = createAlertToolFactory(makeRegistry())({} as never);
     await tool!.execute("call-rv", {
       title: "Rate Val",
       datasourceUid: "prom1",
@@ -340,7 +351,7 @@ describe("grafana_create_alert tool", () => {
     // Simulate validation timeout/crash — Promise rejects with unhandled error
     queryPrometheusMock.mockRejectedValueOnce(new Error("timeout of 30000ms exceeded"));
 
-    const tool = createAlertToolFactory(makeConfig())({} as never);
+    const tool = createAlertToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-resilient", {
       title: "Resilient",
       datasourceUid: "prom1",

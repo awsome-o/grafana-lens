@@ -13,6 +13,7 @@ vi.mock("../grafana-client.js", () => ({
     queryLokiRange = queryLokiRangeMock;
     getDashboard = getDashboardMock;
     listDatasources = listDatasourcesMock;
+    getUrl() { return "http://localhost:3000"; }
   },
 }));
 
@@ -20,9 +21,19 @@ vi.mock("../grafana-client.js", () => ({
 
 import { createQueryLogsToolFactory, MAX_MATRIX_SERIES, MAX_VECTOR_RESULTS } from "./query-logs.js";
 import type { ValidatedGrafanaLensConfig } from "../config.js";
+import { GrafanaClientRegistry } from "../grafana-client-registry.js";
 
 function makeConfig(): ValidatedGrafanaLensConfig {
-  return { grafana: { url: "http://localhost:3000", apiKey: "test-key" } };
+  return {
+    grafana: {
+      instances: { default: { url: "http://localhost:3000", apiKey: "test-key" } },
+      defaultInstance: "default",
+    },
+  } as ValidatedGrafanaLensConfig;
+}
+
+function makeRegistry(): GrafanaClientRegistry {
+  return new GrafanaClientRegistry(makeConfig());
 }
 
 function getTextContent(result: { content: Array<{ type: string; text?: string }> }): string {
@@ -60,7 +71,7 @@ describe("grafana_query_logs tool", () => {
       },
     });
 
-    const tool = createQueryLogsToolFactory(makeConfig())({} as never);
+    const tool = createQueryLogsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-1", {
       datasourceUid: "loki1",
       expr: '{job="api"} |= "error"',
@@ -92,7 +103,7 @@ describe("grafana_query_logs tool", () => {
       },
     });
 
-    const tool = createQueryLogsToolFactory(makeConfig())({} as never);
+    const tool = createQueryLogsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-2", {
       datasourceUid: "loki1",
       expr: '{job="api"}',
@@ -119,7 +130,7 @@ describe("grafana_query_logs tool", () => {
       },
     });
 
-    const tool = createQueryLogsToolFactory(makeConfig())({} as never);
+    const tool = createQueryLogsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-3", {
       datasourceUid: "loki1",
       expr: '{job="api"}',
@@ -136,7 +147,7 @@ describe("grafana_query_logs tool", () => {
       data: { resultType: "streams", result: [] },
     });
 
-    const tool = createQueryLogsToolFactory(makeConfig())({} as never);
+    const tool = createQueryLogsToolFactory(makeRegistry())({} as never);
     await tool!.execute("call-time", {
       datasourceUid: "loki1",
       expr: '{job="api"}',
@@ -165,7 +176,7 @@ describe("grafana_query_logs tool", () => {
       },
     });
 
-    const tool = createQueryLogsToolFactory(makeConfig())({} as never);
+    const tool = createQueryLogsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-lineLimit", {
       datasourceUid: "loki1",
       expr: '{job="api"}',
@@ -193,7 +204,7 @@ describe("grafana_query_logs tool", () => {
       },
     });
 
-    const tool = createQueryLogsToolFactory(makeConfig())({} as never);
+    const tool = createQueryLogsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-default-lineLimit", {
       datasourceUid: "loki1",
       expr: '{job="api"}',
@@ -220,7 +231,7 @@ describe("grafana_query_logs tool", () => {
       },
     });
 
-    const tool = createQueryLogsToolFactory(makeConfig())({} as never);
+    const tool = createQueryLogsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-clamped-lineLimit", {
       datasourceUid: "loki1",
       expr: '{job="api"}',
@@ -274,7 +285,7 @@ describe("grafana_query_logs tool", () => {
       },
     });
 
-    const tool = createQueryLogsToolFactory(makeConfig())({} as never);
+    const tool = createQueryLogsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-extract", {
       datasourceUid: "loki1",
       expr: '{service_name="openclaw"}',
@@ -322,7 +333,7 @@ describe("grafana_query_logs tool", () => {
       },
     });
 
-    const tool = createQueryLogsToolFactory(makeConfig())({} as never);
+    const tool = createQueryLogsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-json-body", {
       datasourceUid: "loki1",
       expr: '{component="app"}',
@@ -351,7 +362,7 @@ describe("grafana_query_logs tool", () => {
       },
     });
 
-    const tool = createQueryLogsToolFactory(makeConfig())({} as never);
+    const tool = createQueryLogsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-non-json", {
       datasourceUid: "loki1",
       expr: '{component="lifecycle"}',
@@ -385,7 +396,7 @@ describe("grafana_query_logs tool", () => {
       },
     });
 
-    const tool = createQueryLogsToolFactory(makeConfig())({} as never);
+    const tool = createQueryLogsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-no-extract", {
       datasourceUid: "loki1",
       expr: '{component="lifecycle"}',
@@ -417,7 +428,7 @@ describe("grafana_query_logs tool", () => {
       },
     });
 
-    const tool = createQueryLogsToolFactory(makeConfig())({} as never);
+    const tool = createQueryLogsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-nested-json", {
       datasourceUid: "loki1",
       expr: '{component="app"}',
@@ -448,7 +459,7 @@ describe("grafana_query_logs tool", () => {
       },
     });
 
-    const tool = createQueryLogsToolFactory(makeConfig())({} as never);
+    const tool = createQueryLogsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-null-json", {
       datasourceUid: "loki1",
       expr: '{component="app"}',
@@ -478,7 +489,7 @@ describe("grafana_query_logs tool", () => {
       },
     });
 
-    const tool = createQueryLogsToolFactory(makeConfig())({} as never);
+    const tool = createQueryLogsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-noise-json", {
       datasourceUid: "loki1",
       expr: '{component="app"}',
@@ -531,7 +542,7 @@ describe("grafana_query_logs tool", () => {
       },
     });
 
-    const tool = createQueryLogsToolFactory(makeConfig())({} as never);
+    const tool = createQueryLogsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-trace-corr", {
       datasourceUid: "loki1",
       expr: '{service_name="openclaw"}',
@@ -565,7 +576,7 @@ describe("grafana_query_logs tool", () => {
       },
     });
 
-    const tool = createQueryLogsToolFactory(makeConfig())({} as never);
+    const tool = createQueryLogsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-no-trace-corr", {
       datasourceUid: "loki1",
       expr: '{service_name="openclaw"}',
@@ -590,7 +601,7 @@ describe("grafana_query_logs tool", () => {
       data: { resultType: "matrix", result: series },
     });
 
-    const tool = createQueryLogsToolFactory(makeConfig())({} as never);
+    const tool = createQueryLogsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-trunc-matrix", {
       datasourceUid: "loki1",
       expr: 'rate({job="api"}[5m])',
@@ -616,7 +627,7 @@ describe("grafana_query_logs tool", () => {
       data: { resultType: "matrix", result: series },
     });
 
-    const tool = createQueryLogsToolFactory(makeConfig())({} as never);
+    const tool = createQueryLogsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-no-trunc-matrix", {
       datasourceUid: "loki1",
       expr: 'rate({job="api"}[5m])',
@@ -639,7 +650,7 @@ describe("grafana_query_logs tool", () => {
       data: { resultType: "vector", result: results },
     });
 
-    const tool = createQueryLogsToolFactory(makeConfig())({} as never);
+    const tool = createQueryLogsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-trunc-vector", {
       datasourceUid: "loki1",
       expr: 'count_over_time({job="api"}[1h])',
@@ -666,7 +677,7 @@ describe("grafana_query_logs tool", () => {
       data: { resultType: "vector", result: results },
     });
 
-    const tool = createQueryLogsToolFactory(makeConfig())({} as never);
+    const tool = createQueryLogsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-no-trunc-vector", {
       datasourceUid: "loki1",
       expr: 'count_over_time({job="api"}[1h])',
@@ -698,7 +709,7 @@ describe("grafana_query_logs tool", () => {
       },
     });
 
-    const tool = createQueryLogsToolFactory(makeConfig())({} as never);
+    const tool = createQueryLogsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-chain", {
       datasourceUid: "loki-abc",
       expr: '{job="api"}',
@@ -711,7 +722,7 @@ describe("grafana_query_logs tool", () => {
   test("API error caught and returned gracefully", async () => {
     queryLokiRangeMock.mockRejectedValueOnce(new Error("query loki range: 502"));
 
-    const tool = createQueryLogsToolFactory(makeConfig())({} as never);
+    const tool = createQueryLogsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-4", {
       datasourceUid: "loki1",
       expr: '{job="api"}',
@@ -757,7 +768,7 @@ describe("grafana_query_logs tool", () => {
       },
     });
 
-    const tool = createQueryLogsToolFactory(makeConfig())({} as never);
+    const tool = createQueryLogsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-panel", {
       dashboardUid: "log-dash",
       panelId: 5,
@@ -789,7 +800,7 @@ describe("grafana_query_logs tool", () => {
       { id: 1, uid: "prom1", name: "Prometheus", type: "prometheus", isDefault: true },
     ]);
 
-    const tool = createQueryLogsToolFactory(makeConfig())({} as never);
+    const tool = createQueryLogsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-panel-prom", {
       dashboardUid: "cost-dash",
       panelId: 2,
@@ -801,7 +812,7 @@ describe("grafana_query_logs tool", () => {
   });
 
   test("missing both expr and dashboardUid returns helpful error", async () => {
-    const tool = createQueryLogsToolFactory(makeConfig())({} as never);
+    const tool = createQueryLogsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-no-params", {});
 
     const parsed = JSON.parse(getTextContent(result));
@@ -817,7 +828,7 @@ describe("grafana_query_logs tool", () => {
       new Error("parse error at line 1, col 1: syntax error: unexpected IDENTIFIER"),
     );
 
-    const tool = createQueryLogsToolFactory(makeConfig())({} as never);
+    const tool = createQueryLogsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-guidance-logql", {
       datasourceUid: "loki1",
       expr: "error",
@@ -835,7 +846,7 @@ describe("grafana_query_logs tool", () => {
       new Error("queries require at least one regexp or equality matcher"),
     );
 
-    const tool = createQueryLogsToolFactory(makeConfig())({} as never);
+    const tool = createQueryLogsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-guidance-empty-selector", {
       datasourceUid: "loki1",
       expr: '{}|="error"',
@@ -849,7 +860,7 @@ describe("grafana_query_logs tool", () => {
   test("no guidance field when error is unknown", async () => {
     queryLokiRangeMock.mockRejectedValueOnce(new Error("some completely unknown error"));
 
-    const tool = createQueryLogsToolFactory(makeConfig())({} as never);
+    const tool = createQueryLogsToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-unknown-err", {
       datasourceUid: "loki1",
       expr: '{job="api"}',

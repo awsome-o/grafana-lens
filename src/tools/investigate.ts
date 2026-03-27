@@ -14,9 +14,9 @@
  */
 
 import { jsonResult, readStringParam } from "../sdk-compat.js";
-import { GrafanaClient } from "../grafana-client.js";
-import type { DatasourceListItem } from "../grafana-client.js";
-import type { ValidatedGrafanaLensConfig } from "../config.js";
+import type { GrafanaClient, DatasourceListItem } from "../grafana-client.js";
+import { GrafanaClientRegistry } from "../grafana-client-registry.js";
+import { instanceProperties } from "./instance-param.js";
 import type { AlertStore } from "../services/alert-webhook.js";
 
 /** Lookback windows mapped to step sizes for range queries. */
@@ -68,15 +68,9 @@ interface Hypothesis {
 }
 
 export function createInvestigateToolFactory(
-  config: ValidatedGrafanaLensConfig,
+  registry: GrafanaClientRegistry,
   store: AlertStore,
 ) {
-  const client = new GrafanaClient({
-    url: config.grafana.url,
-    apiKey: config.grafana.apiKey,
-    orgId: config.grafana.orgId,
-  });
-
   return (_ctx: unknown) => ({
     name: "grafana_investigate",
     label: "Investigate",
@@ -91,6 +85,7 @@ export function createInvestigateToolFactory(
     parameters: {
       type: "object" as const,
       properties: {
+        ...instanceProperties(registry),
         focus: {
           type: "string",
           description: "Alert UID, metric name, or symptom description (e.g., 'alert-abc', 'openclaw_lens_daily_cost_usd', 'high error rate')",
@@ -108,6 +103,7 @@ export function createInvestigateToolFactory(
       required: ["focus"],
     },
     async execute(_toolCallId: string, params: Record<string, unknown>) {
+      const client = registry.get(readStringParam(params, "instance"));
       const focus = readStringParam(params, "focus", { required: true, label: "Focus" });
       const timeWindow = readStringParam(params, "timeWindow") ?? "1h";
       const service = readStringParam(params, "service") ?? "openclaw";
@@ -144,14 +140,14 @@ export function createInvestigateToolFactory(
         const logSearchTerm = isMetricFocus ? undefined : focus;
 
         // ── Step 3: Gather all signals in parallel ────────────────────
-        const metricPromises = gatherMetricSignals(promDs.uid, focusExpr, windowCfg, nowSec, fromSec);
+        const metricPromises = gatherMetricSignals(client, promDs.uid, focusExpr, windowCfg, nowSec, fromSec);
         const logPromise = lokiDs
-          ? gatherLogSignals(lokiDs.uid, service, logSearchTerm, timeWindow, fromMs, nowMs)
+          ? gatherLogSignals(client, lokiDs.uid, service, logSearchTerm, timeWindow, fromMs, nowMs)
           : Promise.resolve(null);
         const tracePromise = tempoDs
-          ? gatherTraceSignals(tempoDs.uid, service, timeWindow, fromMs, nowMs)
+          ? gatherTraceSignals(client, tempoDs.uid, service, timeWindow, fromMs, nowMs)
           : Promise.resolve(null);
-        const contextPromise = gatherContextSignals(fromMs, nowMs);
+        const contextPromise = gatherContextSignals(client, fromMs, nowMs);
 
         const [metricResult, logResult, traceResult, contextResult] = await Promise.allSettled([
           metricPromises,
@@ -213,6 +209,7 @@ export function createInvestigateToolFactory(
   // ── Signal gathering functions ─────────────────────────────────────
 
   async function gatherMetricSignals(
+    client: GrafanaClient,
     promDsUid: string,
     focusExpr: string | undefined,
     windowCfg: { seconds: number; step: string },
@@ -294,6 +291,7 @@ export function createInvestigateToolFactory(
   }
 
   async function gatherLogSignals(
+    client: GrafanaClient,
     lokiDsUid: string,
     service: string,
     searchTerm: string | undefined,
@@ -376,6 +374,7 @@ export function createInvestigateToolFactory(
   }
 
   async function gatherTraceSignals(
+    client: GrafanaClient,
     tempoDsUid: string,
     service: string,
     _timeWindow: string,
@@ -410,7 +409,7 @@ export function createInvestigateToolFactory(
     };
   }
 
-  async function gatherContextSignals(fromMs: number, nowMs: number): Promise<ContextSignals> {
+  async function gatherContextSignals(client: GrafanaClient, fromMs: number, nowMs: number): Promise<ContextSignals> {
     const [annotationsResult] = await Promise.allSettled([
       client.getAnnotations({ from: fromMs, to: nowMs, limit: 10 }),
     ]);

@@ -10,8 +10,8 @@
  */
 
 import { jsonResult, readStringParam } from "../sdk-compat.js";
-import { GrafanaClient } from "../grafana-client.js";
-import type { ValidatedGrafanaLensConfig } from "../config.js";
+import { GrafanaClientRegistry } from "../grafana-client-registry.js";
+import { instanceProperties } from "./instance-param.js";
 
 // ── Threat level thresholds ─────────────────────────────────────────
 
@@ -99,13 +99,7 @@ function overallLevel(checks: CheckResult[]): ThreatStatus {
   return "green";
 }
 
-export function createSecurityCheckToolFactory(config: ValidatedGrafanaLensConfig) {
-  const client = new GrafanaClient({
-    url: config.grafana.url,
-    apiKey: config.grafana.apiKey,
-    orgId: config.grafana.orgId,
-  });
-
+export function createSecurityCheckToolFactory(registry: GrafanaClientRegistry) {
   return (_ctx: unknown) => ({
     name: "grafana_security_check",
     label: "Security Check",
@@ -120,6 +114,7 @@ export function createSecurityCheckToolFactory(config: ValidatedGrafanaLensConfi
     parameters: {
       type: "object" as const,
       properties: {
+        ...instanceProperties(registry),
         lookback: {
           type: "string",
           description:
@@ -128,6 +123,7 @@ export function createSecurityCheckToolFactory(config: ValidatedGrafanaLensConfi
       },
     },
     async execute(_toolCallId: string, params: Record<string, unknown>) {
+      const client = registry.get(readStringParam(params, "instance"));
       const lookback = readStringParam(params, "lookback") ?? "1h";
 
       // Fix 3: Validate lookback to prevent PromQL injection

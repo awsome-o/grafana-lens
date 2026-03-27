@@ -11,6 +11,7 @@ vi.mock("../grafana-client.js", () => ({
     searchDashboards = searchDashboardsMock;
     getDashboard = getDashboardMock;
     dashboardUrl = dashboardUrlMock;
+    getUrl() { return "http://localhost:3000"; }
   },
 }));
 
@@ -18,9 +19,19 @@ vi.mock("../grafana-client.js", () => ({
 
 import { createSearchToolFactory } from "./search.js";
 import type { ValidatedGrafanaLensConfig } from "../config.js";
+import { GrafanaClientRegistry } from "../grafana-client-registry.js";
 
 function makeConfig(): ValidatedGrafanaLensConfig {
-  return { grafana: { url: "http://localhost:3000", apiKey: "test-key" } };
+  return {
+    grafana: {
+      instances: { default: { url: "http://localhost:3000", apiKey: "test-key" } },
+      defaultInstance: "default",
+    },
+  } as ValidatedGrafanaLensConfig;
+}
+
+function makeRegistry(): GrafanaClientRegistry {
+  return new GrafanaClientRegistry(makeConfig());
 }
 
 function getTextContent(result: { content: Array<{ type: string; text?: string }> }): string {
@@ -41,7 +52,7 @@ describe("grafana_search tool", () => {
       { id: 1, uid: "abc", title: "Agent Overview", url: "/d/abc", type: "dash-db", tags: ["agent"] },
     ]);
 
-    const tool = createSearchToolFactory(makeConfig())({} as never);
+    const tool = createSearchToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-1", { query: "agent" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -56,7 +67,7 @@ describe("grafana_search tool", () => {
   test("empty results returns count 0", async () => {
     searchDashboardsMock.mockResolvedValueOnce([]);
 
-    const tool = createSearchToolFactory(makeConfig())({} as never);
+    const tool = createSearchToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-2", { query: "nonexistent" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -67,7 +78,7 @@ describe("grafana_search tool", () => {
   test("API error caught gracefully", async () => {
     searchDashboardsMock.mockRejectedValueOnce(new Error("Grafana authentication failed"));
 
-    const tool = createSearchToolFactory(makeConfig())({} as never);
+    const tool = createSearchToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-3", { query: "test" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -77,7 +88,7 @@ describe("grafana_search tool", () => {
   test("passes optional params (tags, starred, sort, limit) to client", async () => {
     searchDashboardsMock.mockResolvedValueOnce([]);
 
-    const tool = createSearchToolFactory(makeConfig())({} as never);
+    const tool = createSearchToolFactory(makeRegistry())({} as never);
     await tool!.execute("call-4", {
       query: "api",
       tags: ["production"],
@@ -97,7 +108,7 @@ describe("grafana_search tool", () => {
   test("omits undefined optional params", async () => {
     searchDashboardsMock.mockResolvedValueOnce([]);
 
-    const tool = createSearchToolFactory(makeConfig())({} as never);
+    const tool = createSearchToolFactory(makeRegistry())({} as never);
     await tool!.execute("call-5", { query: "test" });
 
     expect(searchDashboardsMock).toHaveBeenCalledWith("test", {
@@ -124,7 +135,7 @@ describe("grafana_search tool", () => {
       },
     ]);
 
-    const tool = createSearchToolFactory(makeConfig())({} as never);
+    const tool = createSearchToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-6", { query: "test" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -152,7 +163,7 @@ describe("grafana_search tool", () => {
         dashboard: { panels: [{}] },
       });
 
-    const tool = createSearchToolFactory(makeConfig())({} as never);
+    const tool = createSearchToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-7", { query: "dash", enrich: true });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -180,7 +191,7 @@ describe("grafana_search tool", () => {
       })
       .mockRejectedValueOnce(new Error("403 Forbidden"));
 
-    const tool = createSearchToolFactory(makeConfig())({} as never);
+    const tool = createSearchToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-8", { query: "test", enrich: true });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -200,7 +211,7 @@ describe("grafana_search tool", () => {
       { id: 1, uid: "abc", title: "Test", url: "/d/abc", type: "dash-db", tags: [] },
     ]);
 
-    const tool = createSearchToolFactory(makeConfig())({} as never);
+    const tool = createSearchToolFactory(makeRegistry())({} as never);
     await tool!.execute("call-9", { query: "test" });
 
     expect(getDashboardMock).not.toHaveBeenCalled();
@@ -209,7 +220,7 @@ describe("grafana_search tool", () => {
   test("enrich=true with empty results does not call getDashboard", async () => {
     searchDashboardsMock.mockResolvedValueOnce([]);
 
-    const tool = createSearchToolFactory(makeConfig())({} as never);
+    const tool = createSearchToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-10", { query: "nonexistent", enrich: true });
 
     const parsed = JSON.parse(getTextContent(result));

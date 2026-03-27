@@ -11,6 +11,7 @@ vi.mock("../grafana-client.js", () => ({
     listDatasources: mockListDatasources,
     queryPrometheus: mockQueryPrometheus,
     queryLokiRange: mockQueryLokiRange,
+    getUrl: () => "http://localhost:3000",
   })),
 }));
 
@@ -18,11 +19,19 @@ vi.mock("../grafana-client.js", () => ({
 
 import { createSecurityCheckToolFactory } from "./security-check.js";
 import type { ValidatedGrafanaLensConfig } from "../config.js";
+import { GrafanaClientRegistry } from "../grafana-client-registry.js";
 
 function makeConfig(): ValidatedGrafanaLensConfig {
   return {
-    grafana: { url: "http://localhost:3000", apiKey: "test-key" },
+    grafana: {
+      instances: { default: { url: "http://localhost:3000", apiKey: "test-key" } },
+      defaultInstance: "default",
+    },
   } as ValidatedGrafanaLensConfig;
+}
+
+function makeRegistry(): GrafanaClientRegistry {
+  return new GrafanaClientRegistry(makeConfig());
 }
 
 /** Build a Prometheus instant query result with a scalar value. */
@@ -47,7 +56,7 @@ describe("grafana_security_check", () => {
     mockQueryPrometheus.mockResolvedValue(promResult(0));
     mockQueryLokiRange.mockResolvedValue({ data: { result: [] } });
 
-    const factory = createSecurityCheckToolFactory(makeConfig());
+    const factory = createSecurityCheckToolFactory(makeRegistry());
     tool = factory(undefined) as typeof tool;
   });
 

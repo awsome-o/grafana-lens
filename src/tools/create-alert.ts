@@ -13,8 +13,8 @@
  */
 
 import { jsonResult, readStringParam, readNumberParam } from "../sdk-compat.js";
-import { GrafanaClient } from "../grafana-client.js";
-import type { ValidatedGrafanaLensConfig } from "../config.js";
+import { GrafanaClientRegistry } from "../grafana-client-registry.js";
+import { instanceProperties } from "./instance-param.js";
 
 /** Metric validation result from dry-running the expression before alert creation. */
 export type MetricValidation = {
@@ -47,15 +47,9 @@ export function wrapExpression(expr: string, evaluation: EvaluationMode, window:
   }
 }
 
-export function createAlertToolFactory(config: ValidatedGrafanaLensConfig) {
-  const client = new GrafanaClient({
-    url: config.grafana.url,
-    apiKey: config.grafana.apiKey,
-    orgId: config.grafana.orgId,
-  });
-
+export function createAlertToolFactory(registry: GrafanaClientRegistry) {
   /** Get or create the default alert folder. */
-  async function ensureFolder(folderUid?: string): Promise<string> {
+  async function ensureFolder(client: import("../grafana-client.js").GrafanaClient, folderUid?: string): Promise<string> {
     if (folderUid) return folderUid;
 
     // Try to find existing folder
@@ -82,7 +76,7 @@ export function createAlertToolFactory(config: ValidatedGrafanaLensConfig) {
    * Dry-run a PromQL expression to validate it returns data.
    * Never throws — returns a MetricValidation result.
    */
-  async function validateExpression(datasourceUid: string, expr: string): Promise<MetricValidation> {
+  async function validateExpression(client: import("../grafana-client.js").GrafanaClient, datasourceUid: string, expr: string): Promise<MetricValidation> {
     try {
       const result = await client.queryPrometheus(datasourceUid, expr);
       const first = result.data.result[0];
@@ -114,6 +108,7 @@ export function createAlertToolFactory(config: ValidatedGrafanaLensConfig) {
     parameters: {
       type: "object" as const,
       properties: {
+        ...instanceProperties(registry),
         title: {
           type: "string",
           description: "Alert rule name (e.g., 'High Daily Cost')",
@@ -174,6 +169,7 @@ export function createAlertToolFactory(config: ValidatedGrafanaLensConfig) {
       required: ["title", "datasourceUid", "expr", "threshold"],
     },
     async execute(_toolCallId: string, params: Record<string, unknown>) {
+      const client = registry.get(readStringParam(params, "instance"));
       const title = readStringParam(params, "title", { required: true, label: "Alert title" });
       const datasourceUid = readStringParam(params, "datasourceUid", { required: true, label: "Datasource UID" });
       const rawExpr = readStringParam(params, "expr", { required: true, label: "PromQL expression" });
@@ -215,8 +211,8 @@ export function createAlertToolFactory(config: ValidatedGrafanaLensConfig) {
         // Dry-run the expression and resolve folder in parallel.
         // Use allSettled so validation failure never blocks alert creation.
         const [validationSettled, folderSettled] = await Promise.allSettled([
-          validateExpression(datasourceUid, expr),
-          ensureFolder(folderUid),
+          validateExpression(client, datasourceUid, expr),
+          ensureFolder(client, folderUid),
         ]);
 
         // Folder resolution is required — propagate its error
@@ -290,7 +286,7 @@ export function createAlertToolFactory(config: ValidatedGrafanaLensConfig) {
           title: rule.title,
           status: "created",
           datasourceUid,
-          url: `${config.grafana.url}/alerting/${rule.uid}/edit`,
+          url: `${client.getUrl()}/alerting/${rule.uid}/edit`,
           evaluation: evaluation !== "instant"
             ? { mode: evaluation, window: evaluationWindow, evaluatedExpr: expr }
             : undefined,

@@ -14,9 +14,9 @@
  */
 
 import { jsonResult, readStringParam } from "../sdk-compat.js";
-import { GrafanaClient } from "../grafana-client.js";
-import type { AlertRule, AlertRuleState, DatasourceListItem } from "../grafana-client.js";
-import type { ValidatedGrafanaLensConfig } from "../config.js";
+import type { GrafanaClient, AlertRule, AlertRuleState, DatasourceListItem } from "../grafana-client.js";
+import { GrafanaClientRegistry } from "../grafana-client-registry.js";
+import { instanceProperties } from "./instance-param.js";
 import type { AlertStore, StoredAlert } from "../services/alert-webhook.js";
 import { getQueryCapability, type QueryToolName, type QueryLanguageName } from "./explore-datasources.js";
 
@@ -30,15 +30,9 @@ interface InvestigationContext {
 const CONTACT_POINT_NAME = "OpenClaw Alert Webhook";
 
 export function createCheckAlertsToolFactory(
-  config: ValidatedGrafanaLensConfig,
+  registry: GrafanaClientRegistry,
   store: AlertStore,
 ) {
-  const client = new GrafanaClient({
-    url: config.grafana.url,
-    apiKey: config.grafana.apiKey,
-    orgId: config.grafana.orgId,
-  });
-
   return (_ctx: unknown) => ({
     name: "grafana_check_alerts",
     label: "Grafana Alerts",
@@ -58,6 +52,7 @@ export function createCheckAlertsToolFactory(
     parameters: {
       type: "object" as const,
       properties: {
+        ...instanceProperties(registry),
         action: {
           type: "string",
           enum: ["list", "acknowledge", "list_rules", "delete_rule", "silence", "unsilence", "setup", "analyze"],
@@ -107,32 +102,33 @@ export function createCheckAlertsToolFactory(
       },
     },
     async execute(_toolCallId: string, params: Record<string, unknown>) {
+      const client = registry.get(readStringParam(params, "instance"));
       const action = readStringParam(params, "action") ?? "list";
 
       switch (action) {
         case "list":
-          return handleList();
+          return handleList(client);
         case "acknowledge":
           return handleAcknowledge(params);
         case "list_rules":
-          return handleListRules(typeof params.compact === "boolean" ? params.compact : false);
+          return handleListRules(client, typeof params.compact === "boolean" ? params.compact : false);
         case "delete_rule":
-          return handleDeleteRule(params);
+          return handleDeleteRule(client, params);
         case "silence":
-          return handleSilence(params);
+          return handleSilence(client, params);
         case "unsilence":
-          return handleUnsilence(params);
+          return handleUnsilence(client, params);
         case "setup":
-          return handleSetup(params);
+          return handleSetup(client, params);
         case "analyze":
-          return handleAnalyze();
+          return handleAnalyze(client);
         default:
           return jsonResult({ error: `Unknown action '${action}'. Use: list, acknowledge, list_rules, delete_rule, silence, unsilence, setup, analyze` });
       }
     },
   });
 
-  async function handleList() {
+  async function handleList(client: GrafanaClient) {
     const pending = store.getPendingAlerts();
     if (pending.length === 0) {
       return jsonResult({ status: "success", alerts: [], message: "No pending alerts" });
@@ -140,7 +136,7 @@ export function createCheckAlertsToolFactory(
 
     // Fetch alert rules + datasources in parallel to enrich alerts with investigation hints.
     // Placed after the empty-check to avoid 2 API round-trips when no alerts are pending.
-    const enrichment = await fetchInvestigationContext();
+    const enrichment = await fetchInvestigationContext(client);
 
     const MAX_INSTANCES = 5;
     return jsonResult({
@@ -176,7 +172,7 @@ export function createCheckAlertsToolFactory(
    * Fetch alert rules and datasources in parallel for enriching the list response.
    * Best-effort: if either fails, returns partial data — the list still works without enrichment.
    */
-  async function fetchInvestigationContext(): Promise<InvestigationContext> {
+  async function fetchInvestigationContext(client: GrafanaClient): Promise<InvestigationContext> {
     const [rulesResult, dsResult] = await Promise.allSettled([
       client.listAlertRules(),
       client.listDatasources(),
@@ -210,7 +206,7 @@ export function createCheckAlertsToolFactory(
     return jsonResult({ status: "acknowledged", alertId });
   }
 
-  async function handleListRules(compact: boolean) {
+  async function handleListRules(client: GrafanaClient, compact: boolean) {
     try {
       // Fetch rule definitions + evaluation state in parallel.
       // Eval state is best-effort: if the Prometheus endpoint fails, rules still return without state.
@@ -274,7 +270,7 @@ export function createCheckAlertsToolFactory(
     }
   }
 
-  async function handleDeleteRule(params: Record<string, unknown>) {
+  async function handleDeleteRule(client: GrafanaClient, params: Record<string, unknown>) {
     const ruleUid = readStringParam(params, "ruleUid", { required: true, label: "Rule UID" });
 
     try {
@@ -290,7 +286,7 @@ export function createCheckAlertsToolFactory(
     }
   }
 
-  async function handleSilence(params: Record<string, unknown>) {
+  async function handleSilence(client: GrafanaClient, params: Record<string, unknown>) {
     const rawMatchers = params.matchers as Array<{ name: string; value: string; isRegex?: boolean }> | undefined;
     if (!rawMatchers || rawMatchers.length === 0) {
       return jsonResult({
@@ -320,7 +316,7 @@ export function createCheckAlertsToolFactory(
     }
   }
 
-  async function handleUnsilence(params: Record<string, unknown>) {
+  async function handleUnsilence(client: GrafanaClient, params: Record<string, unknown>) {
     const silenceId = readStringParam(params, "silenceId", { required: true, label: "Silence ID" });
 
     try {
@@ -336,7 +332,7 @@ export function createCheckAlertsToolFactory(
     }
   }
 
-  async function handleSetup(params: Record<string, unknown>) {
+  async function handleSetup(client: GrafanaClient, params: Record<string, unknown>) {
     const webhookUrl = readStringParam(params, "webhookUrl");
 
     try {
@@ -353,7 +349,7 @@ export function createCheckAlertsToolFactory(
       }
 
       // Determine webhook URL
-      const resolvedUrl = webhookUrl ?? resolveWebhookUrl(config);
+      const resolvedUrl = webhookUrl ?? resolveWebhookUrl();
 
       // Create webhook contact point
       const cp = await client.createContactPoint({
@@ -405,7 +401,7 @@ export function createCheckAlertsToolFactory(
    * Analyze alert rules for fatigue patterns: always-firing, flapping, or high-frequency.
    * Uses rule eval state and last evaluation to classify each rule.
    */
-  async function handleAnalyze() {
+  async function handleAnalyze(client: GrafanaClient) {
     try {
       const [rules, stateResult] = await Promise.allSettled([
         client.listAlertRules(),
@@ -541,10 +537,9 @@ function normalizeState(s: string): string {
   return s;
 }
 
-function resolveWebhookUrl(config: ValidatedGrafanaLensConfig): string {
-  const path = config.proactive?.webhookPath ?? "/grafana-lens/alerts";
+function resolveWebhookUrl(): string {
   // Default to localhost gateway — user can override via webhookUrl param
-  return `http://localhost:18789${path}`;
+  return `http://localhost:18789/grafana-lens/alerts`;
 }
 
 /**

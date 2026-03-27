@@ -23,6 +23,7 @@ vi.mock("../grafana-client.js", () => ({
     createDashboard = createDashboardMock;
     dashboardUrl = dashboardUrlMock;
     queryPrometheus = queryPrometheusMock;
+    getUrl() { return "http://localhost:3000"; }
   },
 }));
 
@@ -30,12 +31,20 @@ vi.mock("../grafana-client.js", () => ({
 
 import { createDashboardToolFactory, validateDashboardPanels } from "./create-dashboard.js";
 import type { ValidatedGrafanaLensConfig } from "../config.js";
+import { GrafanaClientRegistry } from "../grafana-client-registry.js";
 import { GrafanaClient } from "../grafana-client.js";
 
 function makeConfig(): ValidatedGrafanaLensConfig {
   return {
-    grafana: { url: "http://localhost:3000", apiKey: "test-key" },
-  };
+    grafana: {
+      instances: { default: { url: "http://localhost:3000", apiKey: "test-key" } },
+      defaultInstance: "default",
+    },
+  } as ValidatedGrafanaLensConfig;
+}
+
+function makeRegistry(): GrafanaClientRegistry {
+  return new GrafanaClientRegistry(makeConfig());
 }
 
 function getTextContent(result: { content: Array<{ type: string; text?: string }> }): string {
@@ -59,7 +68,7 @@ describe("grafana_create_dashboard tool", () => {
   });
 
   test("template 'llm-command-center' creates dashboard with correct title", async () => {
-    const factory = createDashboardToolFactory(makeConfig());
+    const factory = createDashboardToolFactory(makeRegistry());
     const tool = factory({} as never);
     expect(tool).not.toBeNull();
 
@@ -76,7 +85,7 @@ describe("grafana_create_dashboard tool", () => {
   });
 
   test("template 'session-explorer' creates dashboard with session variable", async () => {
-    const factory = createDashboardToolFactory(makeConfig());
+    const factory = createDashboardToolFactory(makeRegistry());
     const tool = factory({} as never);
 
     const result = await tool!.execute("call-se", { template: "session-explorer" });
@@ -95,7 +104,7 @@ describe("grafana_create_dashboard tool", () => {
   });
 
   test("template 'cost-intelligence' creates dashboard with provider/model variables", async () => {
-    const factory = createDashboardToolFactory(makeConfig());
+    const factory = createDashboardToolFactory(makeRegistry());
     const tool = factory({} as never);
 
     const result = await tool!.execute("call-ci", { template: "cost-intelligence" });
@@ -113,7 +122,7 @@ describe("grafana_create_dashboard tool", () => {
   });
 
   test("template 'tool-performance' creates dashboard with tool variable", async () => {
-    const factory = createDashboardToolFactory(makeConfig());
+    const factory = createDashboardToolFactory(makeRegistry());
     const tool = factory({} as never);
 
     const result = await tool!.execute("call-tp", { template: "tool-performance" });
@@ -130,7 +139,7 @@ describe("grafana_create_dashboard tool", () => {
   });
 
   test("custom dashboard JSON passthrough", async () => {
-    const factory = createDashboardToolFactory(makeConfig());
+    const factory = createDashboardToolFactory(makeRegistry());
     const tool = factory({} as never);
 
     const customDash = { title: "My Custom Dashboard", panels: [] };
@@ -145,7 +154,7 @@ describe("grafana_create_dashboard tool", () => {
   });
 
   test("unknown template returns error via jsonResult", async () => {
-    const factory = createDashboardToolFactory(makeConfig());
+    const factory = createDashboardToolFactory(makeRegistry());
     const tool = factory({} as never);
 
     const result = await tool!.execute("call-3", { template: "nonexistent" });
@@ -156,7 +165,7 @@ describe("grafana_create_dashboard tool", () => {
   });
 
   test("template 'node-exporter' creates dashboard with variables", async () => {
-    const factory = createDashboardToolFactory(makeConfig());
+    const factory = createDashboardToolFactory(makeRegistry());
     const tool = factory({} as never);
 
     const result = await tool!.execute("call-ne", { template: "node-exporter" });
@@ -173,7 +182,7 @@ describe("grafana_create_dashboard tool", () => {
   });
 
   test("template 'http-service' creates dashboard with job variable", async () => {
-    const factory = createDashboardToolFactory(makeConfig());
+    const factory = createDashboardToolFactory(makeRegistry());
     const tool = factory({} as never);
 
     const result = await tool!.execute("call-hs", { template: "http-service" });
@@ -188,7 +197,7 @@ describe("grafana_create_dashboard tool", () => {
   });
 
   test("template 'metric-explorer' creates dashboard with metric variable", async () => {
-    const factory = createDashboardToolFactory(makeConfig());
+    const factory = createDashboardToolFactory(makeRegistry());
     const tool = factory({} as never);
 
     const result = await tool!.execute("call-me", { template: "metric-explorer" });
@@ -203,7 +212,7 @@ describe("grafana_create_dashboard tool", () => {
   });
 
   test("template 'multi-kpi' creates dashboard with 4 metric variables", async () => {
-    const factory = createDashboardToolFactory(makeConfig());
+    const factory = createDashboardToolFactory(makeRegistry());
     const tool = factory({} as never);
 
     const result = await tool!.execute("call-mk", { template: "multi-kpi" });
@@ -222,7 +231,7 @@ describe("grafana_create_dashboard tool", () => {
   });
 
   test("template 'weekly-review' creates dashboard with metric1 and metric2 variables", async () => {
-    const factory = createDashboardToolFactory(makeConfig());
+    const factory = createDashboardToolFactory(makeRegistry());
     const tool = factory({} as never);
 
     const result = await tool!.execute("call-wr", { template: "weekly-review" });
@@ -247,7 +256,7 @@ describe("grafana_create_dashboard tool", () => {
   });
 
   test("template 'sre-operations' creates dashboard with SRE health panels", async () => {
-    const factory = createDashboardToolFactory(makeConfig());
+    const factory = createDashboardToolFactory(makeRegistry());
     const tool = factory({} as never);
 
     const result = await tool!.execute("call-sre", { template: "sre-operations" });
@@ -270,7 +279,7 @@ describe("grafana_create_dashboard tool", () => {
   });
 
   test("AI templates get stable UIDs assigned", async () => {
-    const factory = createDashboardToolFactory(makeConfig());
+    const factory = createDashboardToolFactory(makeRegistry());
     const tool = factory({} as never);
 
     // Test each AI template gets its stable UID
@@ -291,7 +300,7 @@ describe("grafana_create_dashboard tool", () => {
   });
 
   test("non-AI templates do not get stable UIDs", async () => {
-    const factory = createDashboardToolFactory(makeConfig());
+    const factory = createDashboardToolFactory(makeRegistry());
     const tool = factory({} as never);
 
     // Generic templates should NOT have a uid set
@@ -306,7 +315,7 @@ describe("grafana_create_dashboard tool", () => {
   });
 
   test("custom dashboard JSON does not get stable UID", async () => {
-    const factory = createDashboardToolFactory(makeConfig());
+    const factory = createDashboardToolFactory(makeRegistry());
     const tool = factory({} as never);
 
     const customDash = { title: "My Custom", panels: [] };
@@ -319,7 +328,7 @@ describe("grafana_create_dashboard tool", () => {
   // ── suggestedNext template chaining tests ─────────────────────────
 
   test("AI template response includes suggestedNext with complementary templates", async () => {
-    const factory = createDashboardToolFactory(makeConfig());
+    const factory = createDashboardToolFactory(makeRegistry());
     const tool = factory({} as never);
 
     const result = await tool!.execute("call-chain-1", { template: "llm-command-center" });
@@ -338,7 +347,7 @@ describe("grafana_create_dashboard tool", () => {
   });
 
   test("session-explorer suggests cost-intelligence and tool-performance", async () => {
-    const factory = createDashboardToolFactory(makeConfig());
+    const factory = createDashboardToolFactory(makeRegistry());
     const tool = factory({} as never);
 
     const result = await tool!.execute("call-chain-2", { template: "session-explorer" });
@@ -351,7 +360,7 @@ describe("grafana_create_dashboard tool", () => {
   });
 
   test("generic template also includes suggestedNext", async () => {
-    const factory = createDashboardToolFactory(makeConfig());
+    const factory = createDashboardToolFactory(makeRegistry());
     const tool = factory({} as never);
 
     const result = await tool!.execute("call-chain-3", { template: "node-exporter" });
@@ -362,7 +371,7 @@ describe("grafana_create_dashboard tool", () => {
   });
 
   test("custom dashboard JSON does not include suggestedNext", async () => {
-    const factory = createDashboardToolFactory(makeConfig());
+    const factory = createDashboardToolFactory(makeRegistry());
     const tool = factory({} as never);
 
     const customDash = { title: "My Custom", panels: [] };
@@ -373,7 +382,7 @@ describe("grafana_create_dashboard tool", () => {
   });
 
   test("all templates have suggestedNext entries", async () => {
-    const factory = createDashboardToolFactory(makeConfig());
+    const factory = createDashboardToolFactory(makeRegistry());
     const tool = factory({} as never);
 
     const allTemplates = [
@@ -395,7 +404,7 @@ describe("grafana_create_dashboard tool", () => {
   });
 
   test("custom dashboard panels without IDs get auto-assigned sequential IDs", async () => {
-    const factory = createDashboardToolFactory(makeConfig());
+    const factory = createDashboardToolFactory(makeRegistry());
     const tool = factory({} as never);
 
     const customDash = {
@@ -417,7 +426,7 @@ describe("grafana_create_dashboard tool", () => {
   });
 
   test("custom dashboard panels with existing IDs are preserved and gaps filled", async () => {
-    const factory = createDashboardToolFactory(makeConfig());
+    const factory = createDashboardToolFactory(makeRegistry());
     const tool = factory({} as never);
 
     const customDash = {
@@ -441,7 +450,7 @@ describe("grafana_create_dashboard tool", () => {
       new Error("Grafana API error 500: internal server error"),
     );
 
-    const factory = createDashboardToolFactory(makeConfig());
+    const factory = createDashboardToolFactory(makeRegistry());
     const tool = factory({} as never);
 
     const result = await tool!.execute("call-4", { template: "llm-command-center" });
@@ -459,7 +468,7 @@ describe("grafana_create_dashboard tool", () => {
       data: { resultType: "vector", result: [{ metric: {}, value: [0, "42"] }] },
     });
 
-    const factory = createDashboardToolFactory(makeConfig());
+    const factory = createDashboardToolFactory(makeRegistry());
     const tool = factory({} as never);
 
     const customDash = {
@@ -487,7 +496,7 @@ describe("grafana_create_dashboard tool", () => {
       new Error("parse error at line 1, char 5: unexpected character"),
     );
 
-    const factory = createDashboardToolFactory(makeConfig());
+    const factory = createDashboardToolFactory(makeRegistry());
     const tool = factory({} as never);
 
     const customDash = {
@@ -508,7 +517,7 @@ describe("grafana_create_dashboard tool", () => {
   });
 
   test("template dashboard does not include validation", async () => {
-    const factory = createDashboardToolFactory(makeConfig());
+    const factory = createDashboardToolFactory(makeRegistry());
     const tool = factory({} as never);
 
     const result = await tool!.execute("call-v3", { template: "llm-command-center" });
@@ -519,7 +528,7 @@ describe("grafana_create_dashboard tool", () => {
   });
 
   test("custom dashboard with no targets omits validation", async () => {
-    const factory = createDashboardToolFactory(makeConfig());
+    const factory = createDashboardToolFactory(makeRegistry());
     const tool = factory({} as never);
 
     const customDash = {
@@ -542,7 +551,7 @@ describe("grafana_create_dashboard tool", () => {
       })
       .mockRejectedValueOnce(new Error("parse error at char 5"));
 
-    const factory = createDashboardToolFactory(makeConfig());
+    const factory = createDashboardToolFactory(makeRegistry());
     const tool = factory({} as never);
 
     const customDash = {
@@ -565,7 +574,7 @@ describe("grafana_create_dashboard tool", () => {
   });
 
   test("custom dashboard with no datasource UID shows skipped panels", async () => {
-    const factory = createDashboardToolFactory(makeConfig());
+    const factory = createDashboardToolFactory(makeRegistry());
     const tool = factory({} as never);
 
     const customDash = {
@@ -590,7 +599,7 @@ describe("grafana_create_dashboard tool", () => {
       data: { resultType: "vector", result: [] }, // No data
     });
 
-    const factory = createDashboardToolFactory(makeConfig());
+    const factory = createDashboardToolFactory(makeRegistry());
     const tool = factory({} as never);
 
     const customDash = {

@@ -11,6 +11,7 @@ vi.mock("../grafana-client.js", () => ({
     queryPrometheus = queryPrometheusMock;
     queryPrometheusRange = queryPrometheusRangeMock;
     getMetricMetadata = getMetricMetadataMock;
+    getUrl() { return "http://localhost:3000"; }
   },
 }));
 
@@ -18,9 +19,19 @@ vi.mock("../grafana-client.js", () => ({
 
 import { createExplainMetricToolFactory, extractLabelNames, buildSuggestedQueries, resolveBreakdowns } from "./explain-metric.js";
 import type { ValidatedGrafanaLensConfig } from "../config.js";
+import { GrafanaClientRegistry } from "../grafana-client-registry.js";
 
 function makeConfig(): ValidatedGrafanaLensConfig {
-  return { grafana: { url: "http://localhost:3000", apiKey: "test-key" } };
+  return {
+    grafana: {
+      instances: { default: { url: "http://localhost:3000", apiKey: "test-key" } },
+      defaultInstance: "default",
+    },
+  } as ValidatedGrafanaLensConfig;
+}
+
+function makeRegistry(): GrafanaClientRegistry {
+  return new GrafanaClientRegistry(makeConfig());
 }
 
 function getTextContent(result: { content: Array<{ type: string; text?: string }> }): string {
@@ -101,7 +112,7 @@ describe("grafana_explain_metric tool", () => {
       ]),
     );
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("call-1", {
       datasourceUid: "prom1",
       expr: "test_metric",
@@ -139,7 +150,7 @@ describe("grafana_explain_metric tool", () => {
       makeRangeResult([[1708157400, "0.4"], [1708243800, "0.5"]]),
     );
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("call-2", {
       datasourceUid: "prom1",
       expr: "rate(http_requests_total[5m])",
@@ -157,7 +168,7 @@ describe("grafana_explain_metric tool", () => {
       makeRangeResult([[1708157400, "8"], [1708243800, "10"]]),
     );
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("call-3", {
       datasourceUid: "prom1",
       expr: "test_metric",
@@ -176,7 +187,7 @@ describe("grafana_explain_metric tool", () => {
       makeRangeResult([[1707639000, "3"], [1708243800, "5"]]),
     );
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     await tool!.execute("call-4", {
       datasourceUid: "prom1",
       expr: "test_metric",
@@ -200,7 +211,7 @@ describe("grafana_explain_metric tool", () => {
       makeRangeResult([[1705651800, "50"], [1708243800, "100"]]),
     );
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("call-5", {
       datasourceUid: "prom1",
       expr: "test_metric",
@@ -224,7 +235,7 @@ describe("grafana_explain_metric tool", () => {
       makeRangeResult([[1708157400, "1"], [1708243800, "1"]]),
     );
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("call-6", {
       datasourceUid: "prom1",
       expr: "test_metric",
@@ -246,7 +257,7 @@ describe("grafana_explain_metric tool", () => {
     queryPrometheusMock.mockResolvedValueOnce(makeEmptyResult());
     queryPrometheusRangeMock.mockResolvedValueOnce(makeEmptyRangeResult());
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("call-7", {
       datasourceUid: "prom1",
       expr: "test_metric",
@@ -266,7 +277,7 @@ describe("grafana_explain_metric tool", () => {
       makeRangeResult([[1708157400, "5"], [1708200600, "7"], [1708243800, "10"]]),
     );
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("call-8", {
       datasourceUid: "prom1",
       expr: "test_metric",
@@ -284,7 +295,7 @@ describe("grafana_explain_metric tool", () => {
       makeRangeResult([[1708157400, "10"], [1708200600, "6"], [1708243800, "3"]]),
     );
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("call-9", {
       datasourceUid: "prom1",
       expr: "test_metric",
@@ -302,7 +313,7 @@ describe("grafana_explain_metric tool", () => {
       makeRangeResult([[1708157400, "5.00"], [1708200600, "5.01"], [1708243800, "5.00"]]),
     );
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("call-10", {
       datasourceUid: "prom1",
       expr: "test_metric",
@@ -319,7 +330,7 @@ describe("grafana_explain_metric tool", () => {
       makeRangeResult([[1708157400, "0"], [1708243800, "5"]]),
     );
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("call-11", {
       datasourceUid: "prom1",
       expr: "test_metric",
@@ -331,7 +342,7 @@ describe("grafana_explain_metric tool", () => {
   });
 
   test("invalid period returns error", async () => {
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("call-12", {
       datasourceUid: "prom1",
       expr: "test_metric",
@@ -346,7 +357,7 @@ describe("grafana_explain_metric tool", () => {
     queryPrometheusMock.mockRejectedValueOnce(new Error("connection refused"));
     queryPrometheusRangeMock.mockRejectedValueOnce(new Error("connection refused"));
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("call-13", {
       datasourceUid: "prom1",
       expr: "test_metric",
@@ -369,7 +380,7 @@ describe("grafana_explain_metric tool", () => {
       ]),
     );
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("call-14", {
       datasourceUid: "prom1",
       expr: "test_metric",
@@ -387,7 +398,7 @@ describe("grafana_explain_metric tool", () => {
     queryPrometheusMock.mockResolvedValueOnce(makeInstantResult("42"));
     queryPrometheusRangeMock.mockRejectedValueOnce(new Error("timeout"));
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("call-15", {
       datasourceUid: "prom1",
       expr: "test_metric",
@@ -417,7 +428,7 @@ describe("grafana_explain_metric tool", () => {
       makeRangeResult([[1708157400, "5"], [1708243800, "15"]]),
     );
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("call-health-1", {
       datasourceUid: "prom1",
       expr: "openclaw_lens_queue_depth",
@@ -439,7 +450,7 @@ describe("grafana_explain_metric tool", () => {
       makeRangeResult([[1708157400, "2.03"], [1708243800, "2.34"]]),
     );
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("call-health-2", {
       datasourceUid: "prom1",
       expr: "test_metric",
@@ -470,7 +481,7 @@ describe("grafana_explain_metric tool", () => {
       ]),
     );
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("call-cmp-1", {
       datasourceUid: "prom1",
       expr: "test_metric",
@@ -508,7 +519,7 @@ describe("grafana_explain_metric tool", () => {
       makeRangeResult([[1708071000, "5.0"], [1708157400, "5.0"]]),
     );
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("call-cmp-2", {
       datasourceUid: "prom1",
       expr: "test_metric",
@@ -530,7 +541,7 @@ describe("grafana_explain_metric tool", () => {
       makeRangeResult([[1708071000, "4.0"], [1708157400, "4.0"]]),
     );
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("call-cmp-3", {
       datasourceUid: "prom1",
       expr: "test_metric",
@@ -552,7 +563,7 @@ describe("grafana_explain_metric tool", () => {
       makeRangeResult([[1708071000, "0"], [1708157400, "0"]]),
     );
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("call-cmp-4", {
       datasourceUid: "prom1",
       expr: "test_metric",
@@ -572,7 +583,7 @@ describe("grafana_explain_metric tool", () => {
     );
     queryPrometheusRangeMock.mockResolvedValueOnce(makeEmptyRangeResult());
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("call-cmp-5", {
       datasourceUid: "prom1",
       expr: "test_metric",
@@ -591,7 +602,7 @@ describe("grafana_explain_metric tool", () => {
     );
     queryPrometheusRangeMock.mockRejectedValueOnce(new Error("timeout"));
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("call-cmp-6", {
       datasourceUid: "prom1",
       expr: "test_metric",
@@ -610,7 +621,7 @@ describe("grafana_explain_metric tool", () => {
       makeRangeResult([[1708157400, "5.0"], [1708243800, "5.0"]]),
     );
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("call-cmp-7", {
       datasourceUid: "prom1",
       expr: "test_metric",
@@ -633,7 +644,7 @@ describe("grafana_explain_metric tool", () => {
       makeRangeResult([[1708071000, "0.5"], [1708157400, "0.5"]]),
     );
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("call-cmp-8", {
       datasourceUid: "prom1",
       expr: "test_metric",
@@ -670,7 +681,7 @@ describe("grafana_explain_metric tool", () => {
       ]),
     );
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("call-counter-1", {
       datasourceUid: "prom1",
       expr: "test_metric",
@@ -702,7 +713,7 @@ describe("grafana_explain_metric tool", () => {
       makeRangeResult([[1708157400, "1.2"], [1708243800, "1.5"]]),
     );
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("call-counter-2", {
       datasourceUid: "prom1",
       expr: "http_requests_total",
@@ -726,7 +737,7 @@ describe("grafana_explain_metric tool", () => {
       makeRangeResult([[1708157400, "2.0"], [1708243800, "2.5"]]),
     );
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("call-counter-3", {
       datasourceUid: "prom1",
       expr: "openclaw_lens_tokens_total",
@@ -743,7 +754,7 @@ describe("grafana_explain_metric tool", () => {
       makeRangeResult([[1708157400, "90"], [1708243800, "100"]]),
     );
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("call-histogram-1", {
       datasourceUid: "prom1",
       expr: "http_duration_bucket",
@@ -768,7 +779,7 @@ describe("grafana_explain_metric tool", () => {
       makeRangeResult([[1708157400, "65"], [1708243800, "72.5"]]),
     );
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("call-gauge-1", {
       datasourceUid: "prom1",
       expr: "node_cpu_usage",
@@ -791,7 +802,7 @@ describe("grafana_explain_metric tool", () => {
       makeRangeResult([[1708157400, "0.7"], [1708243800, "0.8"]]),
     );
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("call-complex-1", {
       datasourceUid: "prom1",
       expr: "sum(rate(http_requests_total[5m]))",
@@ -825,7 +836,7 @@ describe("grafana_explain_metric tool", () => {
       makeRangeResult([[1708157400, "0.3"], [1708243800, "0.5"]]),
     );
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("call-sq-1", {
       datasourceUid: "prom1",
       expr: "cost_by_token_type_total",
@@ -858,7 +869,7 @@ describe("grafana_explain_metric tool", () => {
       makeRangeResult([[1708157400, "4"], [1708243800, "4"]]),
     );
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("call-sq-2", {
       datasourceUid: "prom1",
       expr: "sessions_active",
@@ -894,7 +905,7 @@ describe("grafana_explain_metric tool", () => {
       makeRangeResult([[1708157400, "2.00"], [1708243800, "2.50"]]),
     );
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("call-sq-3", {
       datasourceUid: "prom1",
       expr: "daily_cost_usd",
@@ -913,7 +924,7 @@ describe("grafana_explain_metric tool", () => {
       makeRangeResult([[1708157400, "0.4"], [1708243800, "0.5"]]),
     );
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("call-sq-4", {
       datasourceUid: "prom1",
       expr: "sum by (model) (rate(tokens_total[5m]))",
@@ -930,7 +941,7 @@ describe("grafana_explain_metric tool", () => {
     queryPrometheusMock.mockResolvedValueOnce(makeEmptyResult());
     queryPrometheusRangeMock.mockResolvedValueOnce(makeEmptyRangeResult());
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("call-sb-1", {
       datasourceUid: "prom1",
       expr: "openclaw_lens_cost_by_token_type",
@@ -956,7 +967,7 @@ describe("grafana_explain_metric tool", () => {
       makeRangeResult([[1708157400, "100"], [1708200600, "200"], [1708243800, "300"]]),
     );
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("call-sb-stale", {
       datasourceUid: "prom1",
       expr: "openclaw_lens_tokens_total",
@@ -988,7 +999,7 @@ describe("grafana_explain_metric tool", () => {
       makeRangeResult([[1708157400, "0.3"], [1708243800, "0.5"]]),
     );
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("call-sb-2", {
       datasourceUid: "prom1",
       expr: "openclaw_lens_cost_by_token_type",
@@ -1009,7 +1020,7 @@ describe("grafana_explain_metric tool", () => {
       makeRangeResult([[1708157400, "40"], [1708243800, "42"]]),
     );
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("call-sb-3", {
       datasourceUid: "prom1",
       expr: "custom_app_metric",
@@ -1027,7 +1038,7 @@ describe("grafana_explain_metric tool", () => {
       makeRangeResult([[1708157400, "0.4"], [1708243800, "0.5"]]),
     );
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("call-sb-4", {
       datasourceUid: "prom1",
       expr: "sum by (model) (rate(tokens_total[5m]))",
@@ -1048,7 +1059,7 @@ describe("grafana_explain_metric tool", () => {
       makeRangeResult([[1708157400, "4"], [1708243800, "4"]]),
     );
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("call-sb-5", {
       datasourceUid: "prom1",
       expr: "openclaw_lens_sessions_active",
@@ -1082,7 +1093,7 @@ describe("grafana_explain_metric tool", () => {
       makeRangeResult([[1708157400, "1.0"], [1708243800, "1.2"]]),
     );
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("call-sq-5", {
       datasourceUid: "prom1",
       expr: "http_requests_total",
@@ -1243,7 +1254,7 @@ describe("anomaly scoring and seasonality (24h period)", () => {
     // seasonality: metric offset 7d
     queryPrometheusMock.mockResolvedValueOnce(makeInstantResult("4.0"));
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("anomaly-1", {
       datasourceUid: "prom1",
       expr: "test_metric",
@@ -1280,7 +1291,7 @@ describe("anomaly scoring and seasonality (24h period)", () => {
       makeRangeResult([[1708157400, "8.0"], [1708243800, "10.5"]]),
     );
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("anomaly-2", {
       datasourceUid: "prom1",
       expr: "test_metric",
@@ -1299,7 +1310,7 @@ describe("anomaly scoring and seasonality (24h period)", () => {
       makeRangeResult([[1708157400, "0.3"], [1708243800, "0.5"]]),
     );
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("anomaly-3", {
       datasourceUid: "prom1",
       expr: "rate(http_requests_total[5m])",
@@ -1323,7 +1334,7 @@ describe("anomaly scoring and seasonality (24h period)", () => {
     queryPrometheusMock.mockRejectedValueOnce(new Error("query timeout"));
     queryPrometheusMock.mockRejectedValueOnce(new Error("query timeout"));
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("anomaly-4", {
       datasourceUid: "prom1",
       expr: "test_metric",
@@ -1356,7 +1367,7 @@ describe("anomaly scoring and seasonality (24h period)", () => {
     queryPrometheusMock.mockResolvedValueOnce(makeInstantResult("25"));
     queryPrometheusMock.mockResolvedValueOnce(makeInstantResult("22"));
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("anomaly-5", {
       datasourceUid: "prom1",
       expr: "test_metric",
@@ -1383,7 +1394,7 @@ describe("anomaly scoring and seasonality (24h period)", () => {
     // offset 7d returns empty
     queryPrometheusMock.mockResolvedValueOnce(makeEmptyResult());
 
-    const tool = createExplainMetricToolFactory(makeConfig())({} as never);
+    const tool = createExplainMetricToolFactory(makeRegistry())({} as never);
     const result = parse(await tool!.execute("anomaly-6", {
       datasourceUid: "prom1",
       expr: "test_metric",

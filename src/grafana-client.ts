@@ -337,6 +337,11 @@ export class GrafanaClient {
     };
   }
 
+  /** Public getter for the instance URL (used by GrafanaClientRegistry). */
+  getUrl(): string {
+    return this.url;
+  }
+
   private async fetchWithTimeout(url: string, init: RequestInit, timeoutMs = 30_000): Promise<Response> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);

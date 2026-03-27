@@ -13,6 +13,7 @@ vi.mock("../grafana-client.js", () => ({
     getDashboard = getDashboardMock;
     createSnapshot = createSnapshotMock;
     dashboardUrl = dashboardUrlMock;
+    getUrl() { return "http://localhost:3000"; }
   },
 }));
 
@@ -26,9 +27,19 @@ vi.mock("node:fs/promises", () => ({
 
 import { createShareDashboardToolFactory, classifyRenderFailure, getPNGDimensions } from "./share-dashboard.js";
 import type { ValidatedGrafanaLensConfig } from "../config.js";
+import { GrafanaClientRegistry } from "../grafana-client-registry.js";
 
 function makeConfig(): ValidatedGrafanaLensConfig {
-  return { grafana: { url: "http://localhost:3000", apiKey: "test-key" } };
+  return {
+    grafana: {
+      instances: { default: { url: "http://localhost:3000", apiKey: "test-key" } },
+      defaultInstance: "default",
+    },
+  } as ValidatedGrafanaLensConfig;
+}
+
+function makeRegistry(): GrafanaClientRegistry {
+  return new GrafanaClientRegistry(makeConfig());
 }
 
 function getTextContent(result: { content: Array<{ type: string; text?: string }> }): string {
@@ -84,7 +95,7 @@ describe("grafana_share_dashboard tool", () => {
     // Valid PNG with matching dimensions (default 1000×500)
     renderPanelMock.mockResolvedValueOnce(buildPNGBuffer(1000, 500));
 
-    const tool = createShareDashboardToolFactory(makeConfig())({} as never);
+    const tool = createShareDashboardToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-1", {
       dashboardUid: "dash-1",
       panelId: 5,
@@ -115,7 +126,7 @@ describe("grafana_share_dashboard tool", () => {
     renderPanelMock.mockRejectedValueOnce(new Error("Image Renderer not available"));
     mockSuccessfulSnapshot(); // snapshot (reuses pre-fetched dashData)
 
-    const tool = createShareDashboardToolFactory(makeConfig())({} as never);
+    const tool = createShareDashboardToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-2", {
       dashboardUid: "dash-1",
       panelId: 5,
@@ -133,7 +144,7 @@ describe("grafana_share_dashboard tool", () => {
     renderPanelMock.mockResolvedValueOnce(buildPNGBuffer(478, 208));
     mockSuccessfulSnapshot();
 
-    const tool = createShareDashboardToolFactory(makeConfig())({} as never);
+    const tool = createShareDashboardToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-placeholder", {
       dashboardUid: "dash-1",
       panelId: 5,
@@ -151,7 +162,7 @@ describe("grafana_share_dashboard tool", () => {
     renderPanelMock.mockRejectedValueOnce(new Error("render fail"));
     createSnapshotMock.mockRejectedValueOnce(new Error("snapshot fail"));
 
-    const tool = createShareDashboardToolFactory(makeConfig())({} as never);
+    const tool = createShareDashboardToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-3", {
       dashboardUid: "dash-1",
       panelId: 5,
@@ -166,7 +177,7 @@ describe("grafana_share_dashboard tool", () => {
   test("panel validation: nonexistent panel returns structured error", async () => {
     getDashboardMock.mockResolvedValueOnce({ dashboard: { title: "Test", panels: [{ id: 1, title: "Only Panel", type: "stat" }] } });
 
-    const tool = createShareDashboardToolFactory(makeConfig())({} as never);
+    const tool = createShareDashboardToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-panel-404", {
       dashboardUid: "dash-1",
       panelId: 999,
@@ -187,7 +198,7 @@ describe("grafana_share_dashboard tool", () => {
     );
     mockSuccessfulSnapshot();
 
-    const tool = createShareDashboardToolFactory(makeConfig())({} as never);
+    const tool = createShareDashboardToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-4", {
       dashboardUid: "dash-1",
       panelId: 5,
@@ -207,7 +218,7 @@ describe("grafana_share_dashboard tool", () => {
     );
     mockSuccessfulSnapshot();
 
-    const tool = createShareDashboardToolFactory(makeConfig())({} as never);
+    const tool = createShareDashboardToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-5", {
       dashboardUid: "dash-1",
       panelId: 5,
@@ -226,7 +237,7 @@ describe("grafana_share_dashboard tool", () => {
     );
     createSnapshotMock.mockRejectedValueOnce(new Error("Dashboard not found"));
 
-    const tool = createShareDashboardToolFactory(makeConfig())({} as never);
+    const tool = createShareDashboardToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-6", {
       dashboardUid: "dash-1",
       panelId: 5,
@@ -245,7 +256,7 @@ describe("grafana_share_dashboard tool", () => {
     renderPanelMock.mockRejectedValueOnce(new Error("connection timeout"));
     createSnapshotMock.mockRejectedValueOnce(new Error("also timed out"));
 
-    const tool = createShareDashboardToolFactory(makeConfig())({} as never);
+    const tool = createShareDashboardToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-7", {
       dashboardUid: "dash-1",
       panelId: 5,

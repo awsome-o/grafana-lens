@@ -17,6 +17,7 @@ vi.mock("../grafana-client.js", () => ({
     queryPrometheus = queryPrometheusMock;
     queryLoki = queryLokiMock;
     queryLokiRange = queryLokiRangeMock;
+    getUrl() { return "http://localhost:3000"; }
   },
 }));
 
@@ -24,9 +25,19 @@ vi.mock("../grafana-client.js", () => ({
 
 import { createGetDashboardToolFactory } from "./get-dashboard.js";
 import type { ValidatedGrafanaLensConfig } from "../config.js";
+import { GrafanaClientRegistry } from "../grafana-client-registry.js";
 
 function makeConfig(): ValidatedGrafanaLensConfig {
-  return { grafana: { url: "http://localhost:3000", apiKey: "test-key" } };
+  return {
+    grafana: {
+      instances: { default: { url: "http://localhost:3000", apiKey: "test-key" } },
+      defaultInstance: "default",
+    },
+  } as ValidatedGrafanaLensConfig;
+}
+
+function makeRegistry(): GrafanaClientRegistry {
+  return new GrafanaClientRegistry(makeConfig());
 }
 
 function getTextContent(result: { content: Array<{ type: string; text?: string }> }): string {
@@ -78,7 +89,7 @@ describe("grafana_get_dashboard tool", () => {
       },
     });
 
-    const tool = createGetDashboardToolFactory(makeConfig())({} as never);
+    const tool = createGetDashboardToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-1", { uid: "dash-1" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -102,7 +113,7 @@ describe("grafana_get_dashboard tool", () => {
       meta: {},
     });
 
-    const tool = createGetDashboardToolFactory(makeConfig())({} as never);
+    const tool = createGetDashboardToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-2", { uid: "dash-2" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -149,7 +160,7 @@ describe("grafana_get_dashboard tool", () => {
       },
     });
 
-    const tool = createGetDashboardToolFactory(makeConfig())({} as never);
+    const tool = createGetDashboardToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-c1", { uid: "dash-c", compact: true });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -198,7 +209,7 @@ describe("grafana_get_dashboard tool", () => {
 
     // Full response
     getDashboardMock.mockResolvedValueOnce(JSON.parse(JSON.stringify(dashboardData)));
-    const tool = createGetDashboardToolFactory(makeConfig())({} as never);
+    const tool = createGetDashboardToolFactory(makeRegistry())({} as never);
     const fullResult = await tool!.execute("call-full", { uid: "dash-size" });
     const fullText = getTextContent(fullResult);
 
@@ -233,7 +244,7 @@ describe("grafana_get_dashboard tool", () => {
       meta: { folderUid: "f1", created: "2026-01-01", updated: "2026-02-01" },
     });
 
-    const tool = createGetDashboardToolFactory(makeConfig())({} as never);
+    const tool = createGetDashboardToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-compat", { uid: "dash-compat", compact: false });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -265,7 +276,7 @@ describe("grafana_get_dashboard tool", () => {
       meta: {},
     });
 
-    const tool = createGetDashboardToolFactory(makeConfig())({} as never);
+    const tool = createGetDashboardToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-def", { uid: "dash-def" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -276,7 +287,7 @@ describe("grafana_get_dashboard tool", () => {
   test("API error caught gracefully", async () => {
     getDashboardMock.mockRejectedValueOnce(new Error("Not found: get dashboard by uid bad-uid"));
 
-    const tool = createGetDashboardToolFactory(makeConfig())({} as never);
+    const tool = createGetDashboardToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-3", { uid: "bad-uid" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -316,7 +327,7 @@ describe("grafana_get_dashboard tool", () => {
       .mockResolvedValueOnce({ data: { resultType: "vector", result: [{ metric: {}, value: [1700000000, "42"] }] } })
       .mockResolvedValueOnce({ data: { resultType: "vector", result: [{ metric: {}, value: [1700000000, "3.14"] }] } });
 
-    const tool = createGetDashboardToolFactory(makeConfig())({} as never);
+    const tool = createGetDashboardToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-audit", { uid: "dash-audit", audit: true });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -347,7 +358,7 @@ describe("grafana_get_dashboard tool", () => {
     listDatasourcesMock.mockResolvedValueOnce(MOCK_DATASOURCES);
     queryPrometheusMock.mockResolvedValueOnce({ data: { resultType: "vector", result: [] } });
 
-    const tool = createGetDashboardToolFactory(makeConfig())({} as never);
+    const tool = createGetDashboardToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-nodata", { uid: "dash-nodata", audit: true });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -377,7 +388,7 @@ describe("grafana_get_dashboard tool", () => {
     listDatasourcesMock.mockResolvedValueOnce(MOCK_DATASOURCES);
     queryPrometheusMock.mockRejectedValueOnce(new Error("parse error: unexpected end of input"));
 
-    const tool = createGetDashboardToolFactory(makeConfig())({} as never);
+    const tool = createGetDashboardToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-err", { uid: "dash-err", audit: true });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -411,7 +422,7 @@ describe("grafana_get_dashboard tool", () => {
       data: { resultType: "vector", result: [{ metric: {}, value: [1700000000, "1"] }] },
     });
 
-    const tool = createGetDashboardToolFactory(makeConfig())({} as never);
+    const tool = createGetDashboardToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-row", { uid: "dash-row", audit: true });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -456,7 +467,7 @@ describe("grafana_get_dashboard tool", () => {
       data: { resultType: "streams", result: [{ stream: {}, values: [["1700000000000000000", "error line"]] }] },
     });
 
-    const tool = createGetDashboardToolFactory(makeConfig())({} as never);
+    const tool = createGetDashboardToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-tpl", { uid: "dash-tpl", audit: true });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -509,7 +520,7 @@ describe("grafana_get_dashboard tool", () => {
       .mockResolvedValueOnce({ data: { resultType: "vector", result: [] } })
       .mockRejectedValueOnce(new Error("parse error"));
 
-    const tool = createGetDashboardToolFactory(makeConfig())({} as never);
+    const tool = createGetDashboardToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-mix", { uid: "dash-mix", audit: true });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -535,7 +546,7 @@ describe("grafana_get_dashboard tool", () => {
       meta: {},
     });
 
-    const tool = createGetDashboardToolFactory(makeConfig())({} as never);
+    const tool = createGetDashboardToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-noaudit", { uid: "dash-noaudit", audit: false });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -566,7 +577,7 @@ describe("grafana_get_dashboard tool", () => {
 
     listDatasourcesMock.mockResolvedValueOnce(MOCK_DATASOURCES); // No elasticsearch
 
-    const tool = createGetDashboardToolFactory(makeConfig())({} as never);
+    const tool = createGetDashboardToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-unresolvable", { uid: "dash-unresolvable", audit: true });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -598,7 +609,7 @@ describe("grafana_get_dashboard tool", () => {
       data: { resultType: "vector", result: [{ metric: {}, value: [1700000000, "1"] }] },
     });
 
-    const tool = createGetDashboardToolFactory(makeConfig())({} as never);
+    const tool = createGetDashboardToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-default-ds", { uid: "dash-default-ds", audit: true });
 
     const parsed = JSON.parse(getTextContent(result));

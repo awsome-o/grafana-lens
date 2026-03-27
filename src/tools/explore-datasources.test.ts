@@ -7,6 +7,7 @@ const listDatasourcesMock = vi.hoisted(() => vi.fn());
 vi.mock("../grafana-client.js", () => ({
   GrafanaClient: class {
     listDatasources = listDatasourcesMock;
+    getUrl() { return "http://localhost:3000"; }
   },
 }));
 
@@ -14,9 +15,19 @@ vi.mock("../grafana-client.js", () => ({
 
 import { createExploreDatasourcesToolFactory, getQueryCapability } from "./explore-datasources.js";
 import type { ValidatedGrafanaLensConfig } from "../config.js";
+import { GrafanaClientRegistry } from "../grafana-client-registry.js";
 
 function makeConfig(): ValidatedGrafanaLensConfig {
-  return { grafana: { url: "http://localhost:3000", apiKey: "test-key" } };
+  return {
+    grafana: {
+      instances: { default: { url: "http://localhost:3000", apiKey: "test-key" } },
+      defaultInstance: "default",
+    },
+  } as ValidatedGrafanaLensConfig;
+}
+
+function makeRegistry(): GrafanaClientRegistry {
+  return new GrafanaClientRegistry(makeConfig());
 }
 
 function getTextContent(result: { content: Array<{ type: string; text?: string }> }): string {
@@ -37,7 +48,7 @@ describe("grafana_explore_datasources tool", () => {
       { id: 3, uid: "tempo1", name: "Tempo", type: "tempo", url: "http://tempo:3200", isDefault: false, access: "proxy" },
     ]);
 
-    const tool = createExploreDatasourcesToolFactory(makeConfig())({} as never);
+    const tool = createExploreDatasourcesToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-1", {});
 
     const parsed = JSON.parse(getTextContent(result));
@@ -76,7 +87,7 @@ describe("grafana_explore_datasources tool", () => {
   test("API error caught gracefully", async () => {
     listDatasourcesMock.mockRejectedValueOnce(new Error("Grafana authentication failed"));
 
-    const tool = createExploreDatasourcesToolFactory(makeConfig())({} as never);
+    const tool = createExploreDatasourcesToolFactory(makeRegistry())({} as never);
     const result = await tool!.execute("call-2", {});
 
     const parsed = JSON.parse(getTextContent(result));

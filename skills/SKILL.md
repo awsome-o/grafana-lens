@@ -74,6 +74,16 @@ You have full native Grafana access — query data, create dashboards, set alert
 - "Postmortem" / "Incident summary" / "What happened?" → `grafana_investigate` → 5-Phase methodology → postmortem template (see sre-investigation.md §9)
 - "Compare before/after deployment" → `grafana_annotate` (list, tags: ["deploy"]) → `grafana_explain_metric` (compareWith: "previous")
 
+## Working with Multiple Grafana Instances
+
+When several Grafana environments are configured (dev, staging, prod), every tool accepts an optional `instance` parameter. `grafana_explore_datasources` returns `availableInstances` — use the `name` values from that list.
+
+**Why this matters**: Users often need to query production metrics, create dashboards in dev, or compare environments side by side. Each tool call targets one instance.
+
+**Smart defaults**: Omitting `instance` always targets the configured default — safe and invisible for single-environment setups. Only specify `instance` when the user explicitly names a non-default environment.
+
+**Cross-environment workflows**: Each call is independent. Query prod, create dashboard in dev — just set `instance` differently on each call. No context switching needed.
+
 ## Tool Inventory
 
 | Tool | What It Does |
@@ -100,9 +110,10 @@ You have full native Grafana access — query data, create dashboards, set alert
 
 ### `grafana_explore_datasources`
 **When**: First step when user mentions data, metrics, or monitoring. Gets datasource UIDs needed by `grafana_query`, `grafana_query_logs`, `grafana_query_traces`, `grafana_list_metrics`, `grafana_create_alert`, and `grafana_explain_metric`.
-**Params**: None required.
+**Params**: `instance` (optional — target Grafana instance, omit for default).
 **Example**: `{}`
-**Returns**: List of datasources with `uid`, `name`, `type`, `isDefault`, plus routing hints: `queryTool` (which agent tool to use, e.g. `"grafana_query"`, `"grafana_query_logs"`, or `"grafana_query_traces"`), `queryLanguage` (e.g. `"PromQL"`, `"LogQL"`, `"TraceQL"`), and `supported` (boolean — whether an agent tool can query this datasource). Use `queryTool` to pick the right tool for each datasource.
+**Example (multi-instance)**: `{ "instance": "prod" }`
+**Returns**: List of datasources with `uid`, `name`, `type`, `isDefault`, plus routing hints: `queryTool` (which agent tool to use, e.g. `"grafana_query"`, `"grafana_query_logs"`, or `"grafana_query_traces"`), `queryLanguage` (e.g. `"PromQL"`, `"LogQL"`, `"TraceQL"`), and `supported` (boolean — whether an agent tool can query this datasource). Use `queryTool` to pick the right tool for each datasource. When multiple Grafana instances are configured, also returns `instance` (which instance was queried) and `availableInstances` (list of `{ name, url, isDefault }` for all configured instances).
 
 ### `grafana_list_metrics`
 **When**: User asks "what metrics are available?" or you need to discover metrics before querying or composing dashboards. Also when grouping metrics by function — metadata mode adds `category` to each `openclaw_*` metric. Use `purpose` when user asks about a specific concern (e.g., "performance metrics", "cost metrics").

@@ -16,8 +16,8 @@ import { jsonResult, readStringParam, readNumberParam } from "../sdk-compat.js";
 import { unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { GrafanaClient } from "../grafana-client.js";
-import type { ValidatedGrafanaLensConfig } from "../config.js";
+import { GrafanaClientRegistry } from "../grafana-client-registry.js";
+import { instanceProperties } from "./instance-param.js";
 
 // ── PNG dimension validation ─────────────────────────────────────────
 
@@ -76,13 +76,7 @@ export function classifyRenderFailure(err: unknown): RenderFailureInfo {
   };
 }
 
-export function createShareDashboardToolFactory(config: ValidatedGrafanaLensConfig) {
-  const client = new GrafanaClient({
-    url: config.grafana.url,
-    apiKey: config.grafana.apiKey,
-    orgId: config.grafana.orgId,
-  });
-
+export function createShareDashboardToolFactory(registry: GrafanaClientRegistry) {
   return (_ctx: unknown) => ({
     name: "grafana_share_dashboard",
     label: "Share Dashboard",
@@ -96,6 +90,7 @@ export function createShareDashboardToolFactory(config: ValidatedGrafanaLensConf
     parameters: {
       type: "object" as const,
       properties: {
+        ...instanceProperties(registry),
         dashboardUid: {
           type: "string",
           description: "Dashboard UID (from grafana_create_dashboard or grafana_search result)",
@@ -129,6 +124,7 @@ export function createShareDashboardToolFactory(config: ValidatedGrafanaLensConf
       required: ["dashboardUid", "panelId"],
     },
     async execute(_toolCallId: string, params: Record<string, unknown>) {
+      const client = registry.get(readStringParam(params, "instance"));
       const dashboardUid = readStringParam(params, "dashboardUid", { required: true, label: "Dashboard UID" });
       const panelId = readNumberParam(params, "panelId", { required: true, label: "Panel ID" }) as number;
       const from = readStringParam(params, "from") ?? "now-6h";

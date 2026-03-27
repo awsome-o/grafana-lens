@@ -25,6 +25,7 @@ vi.mock("../grafana-client.js", () => ({
     deleteAlertRule = deleteAlertRuleMock;
     getAlertRuleStates = getAlertRuleStatesMock;
     listDatasources = listDatasourcesMock;
+    getUrl() { return "http://localhost:3000"; }
   },
 }));
 
@@ -33,12 +34,20 @@ vi.mock("../grafana-client.js", () => ({
 import { createCheckAlertsToolFactory, extractRuleUidFromGeneratorUrl } from "./check-alerts.js";
 import { createAlertStore, type GrafanaAlertNotification } from "../services/alert-webhook.js";
 import type { ValidatedGrafanaLensConfig } from "../config.js";
+import { GrafanaClientRegistry } from "../grafana-client-registry.js";
 
 function makeConfig(): ValidatedGrafanaLensConfig {
   return {
-    grafana: { url: "http://localhost:3000", apiKey: "test-key" },
+    grafana: {
+      instances: { default: { url: "http://localhost:3000", apiKey: "test-key" } },
+      defaultInstance: "default",
+    },
     proactive: { enabled: true },
-  };
+  } as ValidatedGrafanaLensConfig;
+}
+
+function makeRegistry(): GrafanaClientRegistry {
+  return new GrafanaClientRegistry(makeConfig());
 }
 
 function getTextContent(result: { content: Array<{ type: string; text?: string }> }): string {
@@ -97,7 +106,7 @@ describe("grafana_check_alerts tool", () => {
 
   test("list returns empty when no alerts", async () => {
     const store = createAlertStore();
-    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const tool = createCheckAlertsToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-1", {});
 
     const parsed = JSON.parse(getTextContent(result));
@@ -109,7 +118,7 @@ describe("grafana_check_alerts tool", () => {
     const store = createAlertStore();
     store.addAlert(makeNotification());
 
-    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const tool = createCheckAlertsToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-2", { action: "list" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -126,7 +135,7 @@ describe("grafana_check_alerts tool", () => {
     const store = createAlertStore();
     store.addAlert(makeNotification());
 
-    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const tool = createCheckAlertsToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-3", { action: "acknowledge", alertId: "alert-1" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -136,7 +145,7 @@ describe("grafana_check_alerts tool", () => {
 
   test("acknowledge returns error for unknown alert", async () => {
     const store = createAlertStore();
-    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const tool = createCheckAlertsToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-4", { action: "acknowledge", alertId: "nonexistent" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -149,7 +158,7 @@ describe("grafana_check_alerts tool", () => {
     listAlertRulesMock.mockResolvedValueOnce([]);
 
     const store = createAlertStore();
-    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const tool = createCheckAlertsToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-lr-1", { action: "list_rules" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -197,7 +206,7 @@ describe("grafana_check_alerts tool", () => {
     ]));
 
     const store = createAlertStore();
-    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const tool = createCheckAlertsToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-lr-2", { action: "list_rules" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -233,7 +242,7 @@ describe("grafana_check_alerts tool", () => {
     ]);
 
     const store = createAlertStore();
-    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const tool = createCheckAlertsToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-lr-3", { action: "list_rules" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -244,7 +253,7 @@ describe("grafana_check_alerts tool", () => {
     listAlertRulesMock.mockRejectedValueOnce(new Error("Grafana API error 403: forbidden"));
 
     const store = createAlertStore();
-    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const tool = createCheckAlertsToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-lr-4", { action: "list_rules" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -281,7 +290,7 @@ describe("grafana_check_alerts tool", () => {
     ]));
 
     const store = createAlertStore();
-    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const tool = createCheckAlertsToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-lr-5", { action: "list_rules" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -309,7 +318,7 @@ describe("grafana_check_alerts tool", () => {
     getAlertRuleStatesMock.mockRejectedValueOnce(new Error("eval state endpoint unreachable"));
 
     const store = createAlertStore();
-    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const tool = createCheckAlertsToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-lr-6", { action: "list_rules" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -361,7 +370,7 @@ describe("grafana_check_alerts tool", () => {
     ]));
 
     const store = createAlertStore();
-    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const tool = createCheckAlertsToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-lr-compact1", { action: "list_rules", compact: true });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -406,7 +415,7 @@ describe("grafana_check_alerts tool", () => {
     getAlertRuleStatesMock.mockResolvedValueOnce(new Map());
 
     const store = createAlertStore();
-    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const tool = createCheckAlertsToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-lr-compact2", { action: "list_rules" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -425,7 +434,7 @@ describe("grafana_check_alerts tool", () => {
     deleteAlertRuleMock.mockResolvedValueOnce(undefined);
 
     const store = createAlertStore();
-    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const tool = createCheckAlertsToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-dr-1", { action: "delete_rule", ruleUid: "rule-abc" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -438,7 +447,7 @@ describe("grafana_check_alerts tool", () => {
     deleteAlertRuleMock.mockRejectedValueOnce(new Error("Grafana API error 404: alert rule not found"));
 
     const store = createAlertStore();
-    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const tool = createCheckAlertsToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-dr-2", { action: "delete_rule", ruleUid: "nonexistent" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -464,7 +473,7 @@ describe("grafana_check_alerts tool", () => {
     updateNotificationPoliciesMock.mockResolvedValueOnce(undefined);
 
     const store = createAlertStore();
-    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const tool = createCheckAlertsToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-5", { action: "setup" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -498,7 +507,7 @@ describe("grafana_check_alerts tool", () => {
     ]);
 
     const store = createAlertStore();
-    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const tool = createCheckAlertsToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-6", { action: "setup" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -514,7 +523,7 @@ describe("grafana_check_alerts tool", () => {
     updateNotificationPoliciesMock.mockResolvedValueOnce(undefined);
 
     const store = createAlertStore();
-    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const tool = createCheckAlertsToolFactory(makeRegistry(), store)({} as never);
     await tool!.execute("call-7", { action: "setup", webhookUrl: "https://my.server.com/alerts" });
 
     const createArgs = createContactPointMock.mock.calls[0][0];
@@ -535,7 +544,7 @@ describe("grafana_check_alerts tool", () => {
     });
 
     const store = createAlertStore();
-    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const tool = createCheckAlertsToolFactory(makeRegistry(), store)({} as never);
     await tool!.execute("call-8", { action: "setup" });
 
     expect(updateNotificationPoliciesMock).not.toHaveBeenCalled();
@@ -545,7 +554,7 @@ describe("grafana_check_alerts tool", () => {
     listContactPointsMock.mockRejectedValueOnce(new Error("Grafana API error 500: internal"));
 
     const store = createAlertStore();
-    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const tool = createCheckAlertsToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-9", { action: "setup" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -558,7 +567,7 @@ describe("grafana_check_alerts tool", () => {
     createSilenceMock.mockResolvedValueOnce({ silenceID: "silence-abc" });
 
     const store = createAlertStore();
-    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const tool = createCheckAlertsToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-10", {
       action: "silence",
       matchers: [{ name: "alertname", value: "HighCost" }],
@@ -580,7 +589,7 @@ describe("grafana_check_alerts tool", () => {
 
   test("silence returns error when matchers missing", async () => {
     const store = createAlertStore();
-    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const tool = createCheckAlertsToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-11", { action: "silence" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -591,7 +600,7 @@ describe("grafana_check_alerts tool", () => {
     createSilenceMock.mockResolvedValueOnce({ silenceID: "silence-def" });
 
     const store = createAlertStore();
-    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const tool = createCheckAlertsToolFactory(makeRegistry(), store)({} as never);
     await tool!.execute("call-12", {
       action: "silence",
       matchers: [{ name: "alertname", value: "Test" }],
@@ -610,7 +619,7 @@ describe("grafana_check_alerts tool", () => {
     deleteSilenceMock.mockResolvedValueOnce(undefined);
 
     const store = createAlertStore();
-    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const tool = createCheckAlertsToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-13", {
       action: "unsilence",
       silenceId: "silence-abc",
@@ -626,7 +635,7 @@ describe("grafana_check_alerts tool", () => {
     deleteSilenceMock.mockRejectedValueOnce(new Error("Not found: delete silence bad-id"));
 
     const store = createAlertStore();
-    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const tool = createCheckAlertsToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-14", {
       action: "unsilence",
       silenceId: "bad-id",
@@ -642,7 +651,7 @@ describe("grafana_check_alerts tool", () => {
     const store = createAlertStore();
     store.addAlert(makeNotification());
 
-    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const tool = createCheckAlertsToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-15", {});
 
     const parsed = JSON.parse(getTextContent(result));
@@ -651,7 +660,7 @@ describe("grafana_check_alerts tool", () => {
 
   test("empty list includes status: success in response", async () => {
     const store = createAlertStore();
-    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const tool = createCheckAlertsToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-16", {});
 
     const parsed = JSON.parse(getTextContent(result));
@@ -675,7 +684,7 @@ describe("grafana_check_alerts tool", () => {
     const store = createAlertStore();
     store.addAlert(makeNotification({ alerts: manyInstances }));
 
-    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const tool = createCheckAlertsToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-17", {});
 
     const parsed = JSON.parse(getTextContent(result));
@@ -688,7 +697,7 @@ describe("grafana_check_alerts tool", () => {
     const store = createAlertStore();
     store.addAlert(makeNotification());
 
-    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const tool = createCheckAlertsToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-18", {});
 
     const parsed = JSON.parse(getTextContent(result));
@@ -733,7 +742,7 @@ describe("grafana_check_alerts tool", () => {
     const store = createAlertStore();
     store.addAlert(makeNotification());
 
-    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const tool = createCheckAlertsToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-inv-1", { action: "list" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -785,7 +794,7 @@ describe("grafana_check_alerts tool", () => {
       }],
     }));
 
-    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const tool = createCheckAlertsToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-inv-2", { action: "list" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -833,7 +842,7 @@ describe("grafana_check_alerts tool", () => {
       title: "[FIRING:1] NoMatch",
     }));
 
-    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const tool = createCheckAlertsToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-inv-3", { action: "list" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -847,7 +856,7 @@ describe("grafana_check_alerts tool", () => {
     const store = createAlertStore();
     store.addAlert(makeNotification());
 
-    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const tool = createCheckAlertsToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-inv-4", { action: "list" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -905,7 +914,7 @@ describe("grafana_check_alerts tool", () => {
     ]));
 
     const store = createAlertStore();
-    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const tool = createCheckAlertsToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-analyze-1", { action: "analyze" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -947,7 +956,7 @@ describe("grafana_check_alerts tool", () => {
     ]));
 
     const store = createAlertStore();
-    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const tool = createCheckAlertsToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-analyze-2", { action: "analyze" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -987,7 +996,7 @@ describe("grafana_check_alerts tool", () => {
     ]));
 
     const store = createAlertStore();
-    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const tool = createCheckAlertsToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-analyze-3", { action: "analyze" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -999,7 +1008,7 @@ describe("grafana_check_alerts tool", () => {
     listAlertRulesMock.mockResolvedValueOnce([]);
 
     const store = createAlertStore();
-    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const tool = createCheckAlertsToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-analyze-4", { action: "analyze" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -1013,7 +1022,7 @@ describe("grafana_check_alerts tool", () => {
     listAlertRulesMock.mockRejectedValueOnce(new Error("API 500"));
 
     const store = createAlertStore();
-    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const tool = createCheckAlertsToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-analyze-5", { action: "analyze" });
 
     const parsed = JSON.parse(getTextContent(result));
@@ -1048,7 +1057,7 @@ describe("grafana_check_alerts tool", () => {
     getAlertRuleStatesMock.mockResolvedValueOnce(stateMap);
 
     const store = createAlertStore();
-    const tool = createCheckAlertsToolFactory(makeConfig(), store)({} as never);
+    const tool = createCheckAlertsToolFactory(makeRegistry(), store)({} as never);
     const result = await tool!.execute("call-analyze-6", { action: "analyze" });
 
     const parsed = JSON.parse(getTextContent(result));
