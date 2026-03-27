@@ -12,7 +12,7 @@
  * AgentToolResult manually with both text (MEDIA: prefix) and image content.
  */
 
-import { jsonResult, readStringParam, readNumberParam } from "openclaw/plugin-sdk";
+import { jsonResult, readStringParam, readNumberParam } from "../sdk-compat.js";
 import { unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

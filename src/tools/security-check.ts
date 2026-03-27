@@ -9,7 +9,7 @@
  * Honest about limitations: auth failures are invisible to this tool.
  */
 
-import { jsonResult, readStringParam } from "openclaw/plugin-sdk";
+import { jsonResult, readStringParam } from "../sdk-compat.js";
 import { GrafanaClient } from "../grafana-client.js";
 import type { ValidatedGrafanaLensConfig } from "../config.js";
 

@@ -16,7 +16,7 @@
  * is informational, included as a queryValidation object in the response.
  */
 
-import { jsonResult, readStringParam, readNumberParam } from "openclaw/plugin-sdk";
+import { jsonResult, readStringParam, readNumberParam } from "../sdk-compat.js";
 import { GrafanaClient } from "../grafana-client.js";
 import type { ValidatedGrafanaLensConfig } from "../config.js";
 

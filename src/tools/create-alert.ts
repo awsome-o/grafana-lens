@@ -12,7 +12,7 @@
  * The alert is always created regardless — the metric may not have data yet.
  */
 
-import { jsonResult, readStringParam, readNumberParam } from "openclaw/plugin-sdk";
+import { jsonResult, readStringParam, readNumberParam } from "../sdk-compat.js";
 import { GrafanaClient } from "../grafana-client.js";
 import type { ValidatedGrafanaLensConfig } from "../config.js";
 

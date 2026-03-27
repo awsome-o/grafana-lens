@@ -66,12 +66,14 @@ const mockTracesShutdown = vi.hoisted(() => vi.fn().mockResolvedValue(undefined)
 
 const registerLogTransportMock = vi.hoisted(() => vi.fn());
 
-vi.mock("openclaw/plugin-sdk", async () => {
-  const actual = await vi.importActual<typeof import("openclaw/plugin-sdk")>("openclaw/plugin-sdk");
+vi.mock("../sdk-compat.js", async () => {
+  const actual = await vi.importActual<typeof import("../sdk-compat.js")>("../sdk-compat.js");
   return {
     ...actual,
-    onDiagnosticEvent: onDiagnosticEventMock,
-    registerLogTransport: registerLogTransportMock,
+    resolveDiagnosticHooks: vi.fn().mockResolvedValue({
+      onDiagnosticEvent: onDiagnosticEventMock,
+      registerLogTransport: registerLogTransportMock,
+    }),
   };
 });
 

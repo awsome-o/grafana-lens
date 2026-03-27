@@ -7,7 +7,7 @@
  * grafana_list_metrics, plus routing hints for which tool to use.
  */
 
-import { jsonResult } from "openclaw/plugin-sdk";
+import { jsonResult } from "../sdk-compat.js";
 import { GrafanaClient } from "../grafana-client.js";
 import type { ValidatedGrafanaLensConfig } from "../config.js";
 

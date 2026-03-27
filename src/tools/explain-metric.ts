@@ -10,7 +10,7 @@
  * instead of raw monotonically-increasing cumulative values.
  */
 
-import { jsonResult, readStringParam } from "openclaw/plugin-sdk";
+import { jsonResult, readStringParam } from "../sdk-compat.js";
 import { GrafanaClient, type MetricMetadataItem } from "../grafana-client.js";
 import type { ValidatedGrafanaLensConfig } from "../config.js";
 import { getHealthContext } from "./health-context.js";

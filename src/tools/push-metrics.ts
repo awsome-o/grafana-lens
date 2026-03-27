@@ -12,7 +12,7 @@
  * alert, share, annotate) work on it automatically.
  */
 
-import { jsonResult, readStringParam, readNumberParam } from "openclaw/plugin-sdk";
+import { jsonResult, readStringParam, readNumberParam } from "../sdk-compat.js";
 import type { ValidatedGrafanaLensConfig } from "../config.js";
 import { normalizeMetricName, getPromQLName, type CustomMetricsStore, type CustomMetricDataPoint, type MetricType } from "../services/custom-metrics-store.js";
 

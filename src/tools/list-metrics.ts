@@ -6,7 +6,7 @@
  * dashboards — "what can I track?" gets answered here.
  */
 
-import { jsonResult, readStringParam } from "openclaw/plugin-sdk";
+import { jsonResult, readStringParam } from "../sdk-compat.js";
 import { GrafanaClient, escapeRegex } from "../grafana-client.js";
 import type { ValidatedGrafanaLensConfig } from "../config.js";
 import type { CustomMetricsStore } from "../services/custom-metrics-store.js";

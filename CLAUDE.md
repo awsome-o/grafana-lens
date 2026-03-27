@@ -126,10 +126,10 @@ All Grafana interaction is handled by the bundled `GrafanaClient` — no externa
 - `emitDiagnosticEvent(event)`: emit custom events (omits `ts`, `seq`)
 - Events: model.usage, webhook.received/processed/error, message.queued/processed, session.state/stuck, queue.lane.enqueue/dequeue, run.attempt, diagnostic.heartbeat, tool.loop
 
-**Plugin SDK exports** — `src/plugin-sdk/index.ts`
-- Tool utilities: `jsonResult()`, `readStringParam()`, `readNumberParam()`, `readReactionParams()`, `createActionGate()`
-- Diagnostic utilities: `onDiagnosticEvent()`, `emitDiagnosticEvent()`, `isDiagnosticsEnabled()`
-- Other: `emptyPluginConfigSchema()`, `detectMime()`, `extensionForMime()`, `normalizePluginHttpPath()`, `acquireFileLock()`, `withFileLock()`, `registerLogTransport()`
+**Plugin SDK exports** — `src/plugin-sdk/index.ts` (root surface slimmed in 2026.3.16)
+- Root still exports: `onDiagnosticEvent()`, `emptyPluginConfigSchema()`, types (`OpenClawPluginApi`, `DiagnosticEventPayload`)
+- Moved to subpaths: `registerLogTransport` → `plugin-sdk/diagnostics-otel`, types (`OpenClawPluginService`, `OpenClawPluginServiceContext`) → `plugin-sdk/core`
+- **Vendored locally** (`src/sdk-compat.ts`): `jsonResult()`, `readStringParam()`, `readNumberParam()` — removed from root, no generic public subpath for external plugins
 - **NOT exported**: `OpenClawPluginDefinition`, `OpenClawPluginToolFactory`, `OpenClawPluginHttpRouteHandler`, `imageResult`, `imageResultFromFile`, `ToolInputError`, `sanitizeToolResultImages`
 
 **Reference extension** — `extensions/diagnostics-otel/` (factory function, onDiagnosticEvent subscription, start/stop lifecycle)
@@ -202,7 +202,7 @@ export function createMyService(): OpenClawPluginService {
 ### Tool Factory Pattern
 ```typescript
 // Note: OpenClawPluginToolFactory is NOT exported from plugin-sdk — use untyped factory function
-import { jsonResult, readStringParam } from "openclaw/plugin-sdk";
+import { jsonResult, readStringParam } from "../sdk-compat.js";
 
 // Outer factory creates the client; inner factory receives plugin tool context
 function createMyToolFactory(config: MyConfig) {
@@ -315,9 +315,9 @@ Verified conventions from openclaw and diagnostics-otel codebases:
 
 - **TypeScript**: Strict mode, ESM (`"type": "module"`), `NodeNext` module resolution for standalone plugins
 - **Services**: Factory functions returning `OpenClawPluginService`, closure variables for private state, `satisfies` optional
-- **Tool results**: Always use `jsonResult()` from SDK for consistent serialization
+- **Tool results**: Always use `jsonResult()` from `src/sdk-compat.ts` for consistent serialization
 - **Tool interface**: `AgentTool` requires `label` (string) and `execute(_toolCallId: string, params: Record<string, unknown>)` signature
-- **Parameter validation**: Use `readStringParam()`/`readNumberParam()` from SDK instead of raw param access
+- **Parameter validation**: Use `readStringParam()`/`readNumberParam()` from `src/sdk-compat.ts` instead of raw param access
 - **Tool descriptions**: Include `WORKFLOW:` hints for agent usability; parameter descriptions include format examples and valid values
 - **Error messages**: Include context + remediation (e.g., `"Grafana authentication failed — check your service account token"`)
 - **Tests**: vitest, `vi.hoisted()` + `vi.mock()` pattern, one integration-style test per module minimum

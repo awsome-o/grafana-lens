@@ -8,7 +8,7 @@
  * Mirrors grafana_query_logs structure for consistency.
  */
 
-import { jsonResult, readStringParam, readNumberParam } from "openclaw/plugin-sdk";
+import { jsonResult, readStringParam, readNumberParam } from "../sdk-compat.js";
 import { GrafanaClient } from "../grafana-client.js";
 import type {
   TempoSearchTrace,

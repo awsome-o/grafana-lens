@@ -9,7 +9,7 @@
  * to add updatedAt and panelCount — useful for reporting workflows.
  */
 
-import { jsonResult, readNumberParam, readStringParam } from "openclaw/plugin-sdk";
+import { jsonResult, readNumberParam, readStringParam } from "../sdk-compat.js";
 import { GrafanaClient } from "../grafana-client.js";
 import type { DashboardSearchResult } from "../grafana-client.js";
 import type { ValidatedGrafanaLensConfig } from "../config.js";

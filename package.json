@@ -1,6 +1,6 @@
 {
   "name": "openclaw-grafana-lens",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "OpenClaw plugin that gives AI agents full Grafana access — 17 composable tools for PromQL/LogQL/TraceQL queries, dashboard creation, alerting, SRE investigation (multi-signal triage, anomaly detection, alert fatigue analysis), security monitoring (prompt injection detection, tool loop detection), and full OTLP observability (metrics, logs, traces) with gen_ai semantic conventions",
   "type": "module",
   "license": "MIT",

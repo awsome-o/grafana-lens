@@ -18,7 +18,7 @@ import type {
   OpenClawPluginService,
   OpenClawPluginServiceContext,
 } from "openclaw/plugin-sdk";
-import { onDiagnosticEvent, registerLogTransport } from "openclaw/plugin-sdk";
+import { resolveDiagnosticHooks } from "../sdk-compat.js";
 import { redactSecrets, flattenLogKeys } from "./redact.js";
 
 // tool.loop event type exists in openclaw source but is not yet published
@@ -94,6 +94,20 @@ export function createMetricsCollectorService(
     async start(ctx: OpenClawPluginServiceContext) {
       if (config.metrics?.enabled === false) {
         ctx.logger.info("grafana-lens: metrics collection disabled");
+        return;
+      }
+
+      // ── Resolve SDK hooks (version-resilient dynamic import) ────
+      const hooks = await resolveDiagnosticHooks();
+      const onDiagnosticEvent = hooks.onDiagnosticEvent as
+        ((listener: (evt: DiagnosticEventPayload) => void) => () => void) | null;
+      const { registerLogTransport } = hooks;
+      if (!onDiagnosticEvent) {
+        ctx.logger.error(
+          "grafana-lens: onDiagnosticEvent not available — cannot start metrics collection. " +
+          "This usually means an incompatible openclaw version. " +
+          "Please report at https://github.com/anthropics/openclaw/issues",
+        );
         return;
       }
 
@@ -400,6 +414,7 @@ export function createMetricsCollectorService(
         const appLogger = otelLogs.logger;
 
         try {
+          if (!registerLogTransport) throw new Error("not available");
           unsubscribeLogTransport = registerLogTransport((logObj: unknown) => {
             try {
               const obj = logObj as Record<string, unknown>;

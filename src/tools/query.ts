@@ -6,7 +6,7 @@
  * a dashboard — "what's my cost today?" gets a number, not a URL.
  */
 
-import { jsonResult, readStringParam, readNumberParam } from "openclaw/plugin-sdk";
+import { jsonResult, readStringParam, readNumberParam } from "../sdk-compat.js";
 import { GrafanaClient, parseDateMathToSeconds } from "../grafana-client.js";
 import type { ValidatedGrafanaLensConfig } from "../config.js";
 import { getHealthRule, evaluateHealthContext, type HealthContext } from "./health-context.js";
