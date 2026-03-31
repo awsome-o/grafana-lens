@@ -42,6 +42,7 @@ const NOISE_LABELS = new Set([
   "service_name",
   "service_namespace",
   "service_version",
+  "service_instance_id",
   "scope_name",
   "flags",
   "observed_timestamp",

@@ -21,8 +21,7 @@ import {
   BatchLogRecordProcessor,
 } from "@opentelemetry/sdk-logs";
 import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-http";
-import { Resource } from "@opentelemetry/resources";
-import { ATTR_SERVICE_NAME } from "@opentelemetry/semantic-conventions";
+import { createOtelResource } from "./otel-resource.js";
 
 export { SeverityNumber };
 
@@ -30,6 +29,7 @@ export type OtelLogsConfig = {
   endpoint: string;
   headers?: Record<string, string>;
   serviceVersion?: string;
+  serviceInstanceId?: string;
 };
 
 export type OtelLogs = {
@@ -46,11 +46,7 @@ export function createOtelLogs(config: OtelLogsConfig): OtelLogs {
     headers: config.headers,
   });
 
-  const resource = new Resource({
-    [ATTR_SERVICE_NAME]: "openclaw",
-    "service.namespace": "grafana-lens",
-    ...(config.serviceVersion ? { "service.version": config.serviceVersion } : {}),
-  });
+  const resource = createOtelResource(config);
 
   const provider = new LoggerProvider({ resource });
   provider.addLogRecordProcessor(

@@ -299,6 +299,12 @@ describe("manifest schema", () => {
     })).toBe(true);
   });
 
+  test("otlp.instanceId passes schema validation", () => {
+    expect(validate({
+      otlp: { instanceId: "bot-alice" },
+    })).toBe(true);
+  });
+
   test("typo at top level rejected (grfana)", () => {
     expect(validate({ grfana: { url: "http://localhost:3000" } })).toBe(false);
     expect(validate.errors?.[0]?.keyword).toBe("additionalProperties");
@@ -306,6 +312,39 @@ describe("manifest schema", () => {
 
   test("wrong types rejected (url: 123 in legacy)", () => {
     expect(validate({ grafana: { url: 123 } })).toBe(false);
+  });
+});
+
+describe("parseConfig — otlp.instanceId", () => {
+  const originalEnv = process.env;
+
+  afterEach(() => {
+    process.env = originalEnv;
+  });
+
+  test("auto-generates instanceId from hostname when no config or env var", () => {
+    const config = parseConfig({});
+    expect(config.otlp?.instanceId).toBeTruthy();
+    expect(typeof config.otlp?.instanceId).toBe("string");
+    expect(config.otlp?.instanceId!.length).toBeGreaterThan(0);
+  });
+
+  test("explicit config takes precedence over env var", () => {
+    process.env = { ...originalEnv, OTEL_SERVICE_INSTANCE_ID: "from-env" };
+    const config = parseConfig({ otlp: { instanceId: "from-config" } });
+    expect(config.otlp?.instanceId).toBe("from-config");
+  });
+
+  test("OTEL_SERVICE_INSTANCE_ID env var used when no explicit config", () => {
+    process.env = { ...originalEnv, OTEL_SERVICE_INSTANCE_ID: "from-env" };
+    const config = parseConfig({});
+    expect(config.otlp?.instanceId).toBe("from-env");
+  });
+
+  test("instanceId is always a non-empty string", () => {
+    // Even with no config and no env var, hostname fallback should produce something
+    const config = parseConfig({});
+    expect(config.otlp?.instanceId).toBeTruthy();
   });
 });
 

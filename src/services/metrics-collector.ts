@@ -121,6 +121,7 @@ export function createMetricsCollectorService(
         headers: otlpConfig.headers,
         exportIntervalMs: otlpConfig.exportIntervalMs,
         serviceVersion: pluginVersion,
+        serviceInstanceId: otlpConfig.instanceId,
       });
 
       // ── Initialize OTLP logs provider ───────────────────────────
@@ -129,6 +130,7 @@ export function createMetricsCollectorService(
           endpoint: endpoints.logs,
           headers: otlpConfig.headers,
           serviceVersion: pluginVersion,
+          serviceInstanceId: otlpConfig.instanceId,
         });
         ctx.logger.info(`grafana-lens: logs push enabled (OTLP → ${endpoints.logs})`);
       }
@@ -139,6 +141,7 @@ export function createMetricsCollectorService(
           endpoint: endpoints.traces,
           headers: otlpConfig.headers,
           serviceVersion: pluginVersion,
+          serviceInstanceId: otlpConfig.instanceId,
         });
         ctx.logger.info(`grafana-lens: traces push enabled (OTLP → ${endpoints.traces})`);
       }
@@ -162,6 +165,8 @@ export function createMetricsCollectorService(
         }
       };
       checkOtlpEndpoint(endpoints.metrics).catch(() => {});
+
+      ctx.logger.info(`grafana-lens: instance ID: ${otlpConfig.instanceId}`);
 
       const { meter } = otel;
 

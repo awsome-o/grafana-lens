@@ -21,8 +21,7 @@ import {
   BatchSpanProcessor,
 } from "@opentelemetry/sdk-trace-base";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
-import { Resource } from "@opentelemetry/resources";
-import { ATTR_SERVICE_NAME } from "@opentelemetry/semantic-conventions";
+import { createOtelResource } from "./otel-resource.js";
 
 export { SpanKind, SpanStatusCode };
 
@@ -30,6 +29,7 @@ export type OtelTracesConfig = {
   endpoint: string;
   headers?: Record<string, string>;
   serviceVersion?: string;
+  serviceInstanceId?: string;
 };
 
 export type OtelTraces = {
@@ -46,11 +46,7 @@ export function createOtelTraces(config: OtelTracesConfig): OtelTraces {
     headers: config.headers,
   });
 
-  const resource = new Resource({
-    [ATTR_SERVICE_NAME]: "openclaw",
-    "service.namespace": "grafana-lens",
-    ...(config.serviceVersion ? { "service.version": config.serviceVersion } : {}),
-  });
+  const resource = createOtelResource(config);
 
   const provider = new BasicTracerProvider({
     resource,

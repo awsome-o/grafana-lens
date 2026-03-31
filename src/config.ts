@@ -14,6 +14,9 @@
  * Both normalize to the same internal shape: { instances: Record<name, config>, defaultInstance }.
  */
 
+import { hostname } from "node:os";
+import { randomUUID } from "node:crypto";
+
 // ── Grafana instance types ────────────────────────────────────────────
 
 /** A single Grafana instance (parsed — fields may still be missing). */
@@ -44,6 +47,7 @@ export type GrafanaLensConfig = {
     endpoint?: string;
     headers?: Record<string, string>;
     exportIntervalMs?: number;
+    instanceId?: string;
     logs?: boolean;
     traces?: boolean;
     captureContent?: boolean;
@@ -273,6 +277,10 @@ export function parseConfig(raw?: Record<string, unknown>): GrafanaLensConfig & 
       endpoint: otlpEndpoint,
       headers: otlpHeaders,
       exportIntervalMs: otlpRaw.exportIntervalMs as number | undefined,
+      instanceId:
+        (otlpRaw.instanceId as string | undefined)
+        ?? process.env.OTEL_SERVICE_INSTANCE_ID
+        ?? (hostname() || randomUUID()),
       logs: otlpRaw.logs !== false,
       traces: otlpRaw.traces !== false,
       captureContent: otlpRaw.captureContent !== false,

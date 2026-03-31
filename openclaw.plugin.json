@@ -104,6 +104,10 @@
             "description": "Export interval in milliseconds",
             "default": 15000
           },
+          "instanceId": {
+            "type": "string",
+            "description": "Unique identifier for this agent instance (OTel service.instance.id). Falls back to OTEL_SERVICE_INSTANCE_ID env var, then hostname."
+          },
           "logs": {
             "type": "boolean",
             "description": "Enable OTLP log push (structured diagnostic event logs to Loki)",

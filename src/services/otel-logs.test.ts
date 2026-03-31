@@ -25,14 +25,10 @@ vi.mock("@opentelemetry/exporter-logs-otlp-http", () => ({
   },
 }));
 
-vi.mock("@opentelemetry/resources", () => ({
-  Resource: class {
-    constructor(public attrs: Record<string, unknown>) { /* noop */ }
-  },
-}));
+const mockCreateOtelResource = vi.hoisted(() => vi.fn().mockReturnValue({ attrs: {} }));
 
-vi.mock("@opentelemetry/semantic-conventions", () => ({
-  ATTR_SERVICE_NAME: "service.name",
+vi.mock("./otel-resource.js", () => ({
+  createOtelResource: mockCreateOtelResource,
 }));
 
 vi.mock("@opentelemetry/api-logs", () => ({
@@ -86,5 +82,20 @@ describe("createOtelLogs", () => {
     const otel = createOtelLogs({ endpoint: "http://localhost:4318/v1/logs" });
     await otel.shutdown();
     expect(mockShutdown).toHaveBeenCalledTimes(1);
+  });
+
+  test("passes config to createOtelResource", () => {
+    createOtelLogs({
+      endpoint: "http://localhost:4318/v1/logs",
+      serviceVersion: "1.0.0",
+      serviceInstanceId: "bot-alice",
+    });
+
+    expect(mockCreateOtelResource).toHaveBeenCalledWith(
+      expect.objectContaining({
+        serviceVersion: "1.0.0",
+        serviceInstanceId: "bot-alice",
+      }),
+    );
   });
 });

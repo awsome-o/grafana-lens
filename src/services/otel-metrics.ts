@@ -17,14 +17,14 @@ import {
   AggregationTemporality,
 } from "@opentelemetry/sdk-metrics";
 import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http";
-import { Resource } from "@opentelemetry/resources";
-import { ATTR_SERVICE_NAME } from "@opentelemetry/semantic-conventions";
+import { createOtelResource } from "./otel-resource.js";
 
 export type OtelMetricsConfig = {
   endpoint: string;
   headers?: Record<string, string>;
   exportIntervalMs?: number;
   serviceVersion?: string;
+  serviceInstanceId?: string;
 };
 
 export type OtelMetrics = {
@@ -48,11 +48,7 @@ export function createOtelMetrics(config: OtelMetricsConfig): OtelMetrics {
     exportIntervalMillis: config.exportIntervalMs ?? DEFAULT_EXPORT_INTERVAL_MS,
   });
 
-  const resource = new Resource({
-    [ATTR_SERVICE_NAME]: "openclaw",
-    "service.namespace": "grafana-lens",
-    ...(config.serviceVersion ? { "service.version": config.serviceVersion } : {}),
-  });
+  const resource = createOtelResource(config);
 
   const provider = new MeterProvider({
     resource,
