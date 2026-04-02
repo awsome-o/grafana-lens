@@ -121,6 +121,7 @@ function makeInstruments(): LifecycleInstruments {
     sessionResets: { add: vi.fn() } as unknown as LifecycleInstruments["sessionResets"],
     toolErrorClasses: { add: vi.fn() } as unknown as LifecycleInstruments["toolErrorClasses"],
     promptInjectionSignals: { add: vi.fn() } as unknown as LifecycleInstruments["promptInjectionSignals"],
+    traceFallbackSpans: { add: vi.fn() } as unknown as LifecycleInstruments["traceFallbackSpans"],
   };
 }
 
@@ -4532,6 +4533,266 @@ describe("LifecycleTelemetry", () => {
     lt.onSessionStart({ sessionId: "s1" }, { sessionId: "s1" }); // duplicate
 
     expect(lt.getUniqueSessionCount1h()).toBe(2); // s1 and s2
+    lt.destroy();
+  });
+
+  // ════════════════════════════════════════════════════════════════════
+  // Dual-path trace fallback (model.usage → synthetic chat spans)
+  // ════════════════════════════════════════════════════════════════════
+
+  function makeDiagnosticMock() {
+    let listener: ((evt: Record<string, unknown>) => void) | null = null;
+    const unsubscribe = vi.fn();
+    const subscribe = vi.fn().mockImplementation((fn: (evt: Record<string, unknown>) => void) => {
+      listener = fn;
+      return unsubscribe;
+    });
+    const fire = (evt: Record<string, unknown>) => { listener?.(evt); };
+    return { subscribe, unsubscribe, fire };
+  }
+
+  function makeModelUsageEvent(overrides: Record<string, unknown> = {}) {
+    return {
+      type: "model.usage",
+      sessionKey: "sk-1",
+      sessionId: "s-fallback",
+      provider: "anthropic",
+      model: "claude-3-opus",
+      usage: { input: 100, output: 50, cacheRead: 30, cacheWrite: 10 },
+      durationMs: 3000,
+      costUsd: 0.05,
+      ...overrides,
+    };
+  }
+
+  test("model.usage creates fallback chat span when hooks inactive", () => {
+    const diag = makeDiagnosticMock();
+    const lt = createLifecycleTelemetry(traces, logs, instruments, {
+      onDiagnosticEvent: diag.subscribe as unknown as NonNullable<Parameters<typeof createLifecycleTelemetry>[3]>["onDiagnosticEvent"],
+    });
+
+    const beforeCount = mockSpans.length;
+    diag.fire(makeModelUsageEvent());
+
+    // Fallback span created
+    const fallbackSpans = mockSpans.slice(beforeCount);
+    expect(fallbackSpans.length).toBe(1);
+    const span = fallbackSpans[0];
+    expect(span.name).toContain("chat claude-3-opus");
+    expect(span.opts.kind).toBe(2); // SpanKind.CLIENT
+    expect(span.opts.attributes).toMatchObject({
+      "gen_ai.operation.name": "chat",
+      "gen_ai.provider.name": "anthropic",
+      "gen_ai.request.model": "claude-3-opus",
+      "openclaw.trace_fallback": true,
+      "openclaw.trace_source": "fallback_model_usage",
+      "gen_ai.usage.input_tokens": 100,
+      "gen_ai.usage.output_tokens": 50,
+    });
+    expect(span.end).toHaveBeenCalled();
+
+    // gen_ai metrics recorded
+    expect(instruments.tokenUsage.record).toHaveBeenCalled();
+    expect(instruments.operationDuration.record).toHaveBeenCalledWith(3, expect.objectContaining({
+      "gen_ai.request.model": "claude-3-opus",
+    }));
+
+    // Fallback counter incremented
+    expect(instruments.traceFallbackSpans.add).toHaveBeenCalledWith(1, { model: "claude-3-opus", provider: "anthropic" });
+
+    lt.destroy();
+  });
+
+  test("model.usage does NOT create span when hooks active", () => {
+    const diag = makeDiagnosticMock();
+    const lt = createLifecycleTelemetry(traces, logs, instruments, {
+      onDiagnosticEvent: diag.subscribe as unknown as NonNullable<Parameters<typeof createLifecycleTelemetry>[3]>["onDiagnosticEvent"],
+    });
+
+    // Start session and fire llm_input (latches llmHooksActive = true)
+    lt.onSessionStart({ sessionId: "s1" }, { sessionId: "s1" });
+    lt.onLlmInput(
+      { runId: "r1", sessionId: "s1", provider: "anthropic", model: "opus", systemPrompt: "", prompt: "hi", historyMessages: [], imagesCount: 0 },
+      { sessionKey: "k1", sessionId: "s1" },
+    );
+
+    const beforeCount = mockSpans.length;
+    diag.fire(makeModelUsageEvent({ sessionId: "s1" }));
+
+    // No new fallback span
+    expect(mockSpans.length).toBe(beforeCount);
+    expect(instruments.traceFallbackSpans.add).not.toHaveBeenCalled();
+
+    lt.destroy();
+  });
+
+  test("fallback span parented under active session", () => {
+    const diag = makeDiagnosticMock();
+    const lt = createLifecycleTelemetry(traces, logs, instruments, {
+      onDiagnosticEvent: diag.subscribe as unknown as NonNullable<Parameters<typeof createLifecycleTelemetry>[3]>["onDiagnosticEvent"],
+    });
+
+    // Create session first
+    lt.onSessionStart({ sessionId: "s-fb" }, { sessionId: "s-fb" });
+    const sessionSpan = mockSpans.find(s => s.name.includes("invoke_agent"));
+    expect(sessionSpan).toBeDefined();
+
+    // Fire model.usage for that session
+    diag.fire(makeModelUsageEvent({ sessionId: "s-fb", sessionKey: "sk-fb" }));
+
+    const fallbackSpan = mockSpans.find(s => (s.opts?.attributes as Record<string, unknown>)?.["openclaw.trace_fallback"] === true);
+    expect(fallbackSpan).toBeDefined();
+    // Parent context should be the session context (not ROOT)
+    expect(fallbackSpan!.parentContext).toBeDefined();
+    expect(fallbackSpan!.parentContext).not.toEqual({ _type: "ROOT_CONTEXT" });
+
+    lt.destroy();
+  });
+
+  test("fallback span uses backdated start time from durationMs", () => {
+    const diag = makeDiagnosticMock();
+    const lt = createLifecycleTelemetry(traces, logs, instruments, {
+      onDiagnosticEvent: diag.subscribe as unknown as NonNullable<Parameters<typeof createLifecycleTelemetry>[3]>["onDiagnosticEvent"],
+    });
+
+    const beforeTime = Date.now();
+    diag.fire(makeModelUsageEvent({ durationMs: 5000 }));
+
+    const fallbackSpan = mockSpans.find(s => (s.opts?.attributes as Record<string, unknown>)?.["openclaw.trace_fallback"] === true);
+    expect(fallbackSpan).toBeDefined();
+    // Start time should be approximately now - 5000ms
+    const startTime = fallbackSpan!.opts.startTime as number;
+    expect(startTime).toBeLessThanOrEqual(beforeTime - 4900);
+    expect(startTime).toBeGreaterThanOrEqual(beforeTime - 5100);
+
+    lt.destroy();
+  });
+
+  test("WARN log fires on first fallback activation only", () => {
+    const diag = makeDiagnosticMock();
+    const lt = createLifecycleTelemetry(traces, logs, instruments, {
+      onDiagnosticEvent: diag.subscribe as unknown as NonNullable<Parameters<typeof createLifecycleTelemetry>[3]>["onDiagnosticEvent"],
+    });
+
+    diag.fire(makeModelUsageEvent());
+    diag.fire(makeModelUsageEvent({ model: "gpt-4" }));
+
+    // WARN log should fire exactly once
+    const warnLogs = mockLogEmit.mock.calls.filter(
+      (c: Array<Record<string, unknown>>) => c[0]?.body?.toString().includes("hook dispatch appears broken"),
+    );
+    expect(warnLogs.length).toBe(1);
+
+    lt.destroy();
+  });
+
+  test("fallback accumulates session tokens and cost", () => {
+    const diag = makeDiagnosticMock();
+    const lt = createLifecycleTelemetry(traces, logs, instruments, {
+      onDiagnosticEvent: diag.subscribe as unknown as NonNullable<Parameters<typeof createLifecycleTelemetry>[3]>["onDiagnosticEvent"],
+    });
+
+    lt.onSessionStart({ sessionId: "s-acc" }, { sessionId: "s-acc" });
+    diag.fire(makeModelUsageEvent({ sessionId: "s-acc", sessionKey: "sk-acc", costUsd: 0.10 }));
+    diag.fire(makeModelUsageEvent({ sessionId: "s-acc", sessionKey: "sk-acc", costUsd: 0.15 }));
+
+    // End session to trigger summary
+    lt.onSessionEnd({ sessionId: "s-acc", messageCount: 2 }, { sessionId: "s-acc" });
+
+    // Session root span should have accumulated tokens
+    const sessionSpan = mockSpans.find(s => s.name.includes("invoke_agent"));
+    expect(sessionSpan).toBeDefined();
+    const setAttrCalls = sessionSpan!.setAttributes.mock.calls.flat();
+    const attrs = Object.assign({}, ...setAttrCalls);
+    expect(attrs["openclaw.session.total_input_tokens"]).toBe(200); // 100 * 2
+    expect(attrs["openclaw.session.cost_usd"]).toBeCloseTo(0.25, 2);
+
+    lt.destroy();
+  });
+
+  test("llm_input after fallback deactivates it and logs recovery", () => {
+    const diag = makeDiagnosticMock();
+    const lt = createLifecycleTelemetry(traces, logs, instruments, {
+      onDiagnosticEvent: diag.subscribe as unknown as NonNullable<Parameters<typeof createLifecycleTelemetry>[3]>["onDiagnosticEvent"],
+    });
+
+    // Activate fallback
+    lt.onSessionStart({ sessionId: "s-rec" }, { sessionId: "s-rec" });
+    diag.fire(makeModelUsageEvent({ sessionId: "s-rec" }));
+    expect(instruments.traceFallbackSpans.add).toHaveBeenCalledTimes(1);
+
+    // Now hooks recover
+    lt.onLlmInput(
+      { runId: "r1", sessionId: "s-rec", provider: "anthropic", model: "opus", systemPrompt: "", prompt: "hi", historyMessages: [], imagesCount: 0 },
+      { sessionKey: "sk-rec", sessionId: "s-rec" },
+    );
+
+    // Recovery log emitted
+    const recoveryLogs = mockLogEmit.mock.calls.filter(
+      (c: Array<Record<string, unknown>>) => c[0]?.body?.toString().includes("hooks restored"),
+    );
+    expect(recoveryLogs.length).toBe(1);
+
+    // Further model.usage events should NOT create spans
+    const beforeCount = mockSpans.length;
+    diag.fire(makeModelUsageEvent({ sessionId: "s-rec" }));
+    expect(mockSpans.length).toBe(beforeCount);
+
+    lt.destroy();
+  });
+
+  test("destroy() unsubscribes diagnostic listener", () => {
+    const diag = makeDiagnosticMock();
+    const lt = createLifecycleTelemetry(traces, logs, instruments, {
+      onDiagnosticEvent: diag.subscribe as unknown as NonNullable<Parameters<typeof createLifecycleTelemetry>[3]>["onDiagnosticEvent"],
+    });
+
+    expect(diag.subscribe).toHaveBeenCalledTimes(1);
+    lt.destroy();
+    expect(diag.unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  test("model.usage without session creates orphaned fallback span", () => {
+    const diag = makeDiagnosticMock();
+    const lt = createLifecycleTelemetry(traces, logs, instruments, {
+      onDiagnosticEvent: diag.subscribe as unknown as NonNullable<Parameters<typeof createLifecycleTelemetry>[3]>["onDiagnosticEvent"],
+    });
+
+    // Fire without any session — should not crash
+    diag.fire(makeModelUsageEvent({ sessionId: undefined, sessionKey: undefined }));
+
+    const fallbackSpan = mockSpans.find(s => (s.opts?.attributes as Record<string, unknown>)?.["openclaw.trace_fallback"] === true);
+    expect(fallbackSpan).toBeDefined();
+    // Parent is ROOT_CONTEXT (orphaned but valid)
+    expect(fallbackSpan!.parentContext).toEqual({ _type: "ROOT_CONTEXT" });
+
+    lt.destroy();
+  });
+
+  test("cost threshold alerts fire from fallback data", () => {
+    const diag = makeDiagnosticMock();
+    const lt = createLifecycleTelemetry(traces, logs, instruments, {
+      costEstimator: () => 0.60,
+      onDiagnosticEvent: diag.subscribe as unknown as NonNullable<Parameters<typeof createLifecycleTelemetry>[3]>["onDiagnosticEvent"],
+    });
+
+    lt.onSessionStart({ sessionId: "s-cost" }, { sessionId: "s-cost" });
+
+    // Fire events that cross $1 threshold (costUsd: 0.60 * 2 = $1.20)
+    diag.fire(makeModelUsageEvent({ sessionId: "s-cost", sessionKey: "sk-cost", costUsd: 0.60 }));
+    diag.fire(makeModelUsageEvent({ sessionId: "s-cost", sessionKey: "sk-cost", costUsd: 0.60 }));
+
+    const thresholdLogs = mockLogEmit.mock.calls.filter(
+      (c: Array<Record<string, unknown>>) => {
+        const body = c[0]?.body?.toString() ?? "";
+        return body.includes("cost crossed $1.00");
+      },
+    );
+    expect(thresholdLogs.length).toBe(1);
+    // Verify fallback source is tagged (flattenLogKeys converts dots → underscores)
+    const attrs = thresholdLogs[0]?.[0]?.attributes as Record<string, unknown> | undefined;
+    expect(attrs?.["openclaw_trace_source"]).toBe("fallback_model_usage");
+
     lt.destroy();
   });
 });

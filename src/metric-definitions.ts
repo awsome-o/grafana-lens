@@ -201,6 +201,12 @@ export const METRIC_DEFINITIONS: readonly MetricDefinition[] = [
     instrument: "counter",
     labels: ["detector"],
   },
+  {
+    otelName: "openclaw_lens_trace_fallback_spans",
+    help: "Fallback chat spans created from model.usage when llm hooks unavailable",
+    instrument: "counter",
+    labels: ["model", "provider"],
+  },
 
   // ── Histograms ─────────────────────────────────────────────────────
   {

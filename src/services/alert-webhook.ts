@@ -181,6 +181,7 @@ export function createAlertWebhookService(
   config: ValidatedGrafanaLensConfig,
   registerHttpRoute: (params: {
     path: string;
+    auth: "gateway" | "plugin";
     handler: (req: unknown, res: AlertWebhookHttpResponse) => Promise<void> | void;
   }) => void,
 ): { service: OpenClawPluginService; store: AlertStore } {
@@ -199,6 +200,7 @@ export function createAlertWebhookService(
 
       registerHttpRoute({
         path: webhookPath,
+        auth: "gateway",
         handler: async (req: unknown, res: AlertWebhookHttpResponse) => {
           const httpReq = req as HttpRequest;
 

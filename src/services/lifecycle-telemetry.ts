@@ -333,6 +333,7 @@ export type LifecycleInstruments = {
   sessionResets: Counter;
   toolErrorClasses: Counter;
   promptInjectionSignals: Counter;
+  traceFallbackSpans: Counter;
 };
 
 // ══════════════════════════════════════════════════════════════════════
@@ -485,6 +486,18 @@ export type LifecycleTelemetryOpts = {
   costEstimator?: (provider?: string, model?: string, usage?: {
     input?: number; output?: number; cacheRead?: number; cacheWrite?: number;
   }) => number | undefined;
+  /** Subscribe to model.usage diagnostic events for dual-path trace fallback */
+  onDiagnosticEvent?: (listener: (evt: {
+    type: string;
+    sessionKey?: string;
+    sessionId?: string;
+    provider?: string;
+    model?: string;
+    usage: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
+    durationMs?: number;
+    costUsd?: number;
+    context?: { limit?: number; used?: number };
+  }) => void) => () => void;
 };
 
 export function createLifecycleTelemetry(
@@ -568,6 +581,11 @@ export function createLifecycleTelemetry(
   // (e.g., two concurrent grafana_query calls with key ":grafana_query")
   type ToolCallEntry = { span: Span; toolName: string; startTime: number; resolvedSessionId?: string };
   const activeToolCalls = new Map<string, ToolCallEntry[]>();
+
+  // Dual-path trace fallback: model.usage → synthetic chat spans when hooks broken
+  let llmHooksActive = false;
+  let fallbackModeLogged = false;
+  let unsubscribeDiagnostic: (() => void) | null = null;
 
   // ── Parent-child subagent tracking ──────────────────────────────────
   // Bridges the timing gap between subagent_spawned (knows childSessionKey)
@@ -662,6 +680,141 @@ export function createLifecycleTelemetry(
     }
   }, 60_000);
   if (cleanupInterval.unref) cleanupInterval.unref();
+
+  // ── Dual-path trace fallback: model.usage → synthetic chat spans ──
+  // When openclaw's llm_input/llm_output hooks are broken (e.g., v2026.3.31-4.1),
+  // model.usage diagnostic events still fire via a separate pipeline.
+  // Subscribe as an always-on second data source that activates only when hooks are silent.
+  if (opts?.onDiagnosticEvent) {
+    unsubscribeDiagnostic = opts.onDiagnosticEvent((evt) => {
+      if (evt.type !== "model.usage") return;
+
+      // When hooks work, they handle everything — model.usage is dormant
+      if (llmHooksActive) return;
+
+      // First activation: one-time WARN log
+      if (!fallbackModeLogged) {
+        fallbackModeLogged = true;
+        emitLog(SeverityNumber.WARN, "WARN",
+          "LLM hook dispatch appears broken — activating model.usage fallback for trace generation. " +
+          "Upgrade openclaw to v2026.4.2+ to restore full hook-based tracing.",
+          {
+            "event.domain": "openclaw",
+            "event.name": "trace.fallback_activated",
+            "openclaw.trace_source": "fallback_model_usage",
+          });
+      }
+
+      const now = Date.now();
+      const model = evt.model ?? "unknown";
+      const provider = evt.provider ?? "unknown";
+      const durationMs = evt.durationMs ?? 0;
+      const startTime = durationMs > 0 ? now - durationMs : now;
+
+      // Resolve parent session for span hierarchy
+      const session = resolveSessionCtx(evt.sessionId, evt.sessionKey);
+      const parentCtx = session?.ctx ?? ROOT_CONTEXT;
+
+      // Create synthetic chat span (backdated by durationMs for accurate waterfall)
+      const inTok = evt.usage?.input ?? 0;
+      const outTok = evt.usage?.output ?? 0;
+      const span = tracer.startSpan(`chat ${model} (${inTok}\u2192${outTok} tok)`, {
+        kind: SpanKind.CLIENT,
+        startTime,
+        attributes: {
+          "gen_ai.operation.name": "chat",
+          "gen_ai.provider.name": provider,
+          "gen_ai.request.model": model,
+          "gen_ai.usage.input_tokens": inTok,
+          "gen_ai.usage.output_tokens": outTok,
+          "gen_ai.usage.cache_read.input_tokens": evt.usage?.cacheRead ?? 0,
+          "gen_ai.usage.cache_creation.input_tokens": evt.usage?.cacheWrite ?? 0,
+          "openclaw.trace_fallback": true,
+          "openclaw.trace_source": "fallback_model_usage",
+          ...(evt.sessionKey ? { "openclaw.session_key": evt.sessionKey } : {}),
+          ...(evt.sessionId ? { "openclaw.session_id": evt.sessionId } : {}),
+        },
+      }, parentCtx);
+
+      span.setStatus({ code: SpanStatusCode.OK });
+      span.end(now);
+
+      // Record gen_ai standard metrics (same pattern as onLlmOutput)
+      const metricAttrs = {
+        "gen_ai.operation.name": "chat",
+        "gen_ai.provider.name": provider,
+        "gen_ai.request.model": model,
+      };
+      if (inTok > 0) instruments.tokenUsage.record(inTok, { ...metricAttrs, "gen_ai.token.type": "input" });
+      if (outTok > 0) instruments.tokenUsage.record(outTok, { ...metricAttrs, "gen_ai.token.type": "output" });
+      if (evt.usage?.cacheRead) instruments.tokenUsage.record(evt.usage.cacheRead, { ...metricAttrs, "gen_ai.token.type": "cache_read_input" });
+      if (evt.usage?.cacheWrite) instruments.tokenUsage.record(evt.usage.cacheWrite, { ...metricAttrs, "gen_ai.token.type": "cache_creation_input" });
+
+      if (durationMs > 0) {
+        instruments.operationDuration.record(durationMs / 1000, metricAttrs);
+      }
+
+      // Accumulate session data (tokens, cost, latency)
+      if (session && !session.finalized) {
+        session.totalInputTokens += inTok;
+        session.totalOutputTokens += outTok;
+        session.totalCacheReadTokens += evt.usage?.cacheRead ?? 0;
+        session.totalCacheWriteTokens += evt.usage?.cacheWrite ?? 0;
+        session.messageCountAssistant++;
+        if (model !== "unknown") session.primaryModel = model;
+        if (provider !== "unknown") session.primaryProvider = provider;
+
+        // Cost: prefer evt.costUsd (most authoritative), else costEstimator
+        let costUsd: number | undefined;
+        if (evt.costUsd != null && evt.costUsd > 0) {
+          costUsd = evt.costUsd;
+        } else if (costEstimator) {
+          costUsd = costEstimator(provider, model, evt.usage);
+        }
+        if (costUsd && costUsd > 0) {
+          const prevCost = session.totalCostUsd;
+          session.totalCostUsd += costUsd;
+          // SRE cost threshold alerts (same logic as onLlmOutput)
+          for (const threshold of COST_THRESHOLDS) {
+            if (prevCost < threshold && session.totalCostUsd >= threshold && !session.costThresholdsLogged.has(threshold)) {
+              session.costThresholdsLogged.add(threshold);
+              const sev = threshold >= 10 ? SeverityNumber.ERROR
+                : threshold >= 5 ? SeverityNumber.WARN
+                : SeverityNumber.INFO;
+              const sevText = threshold >= 10 ? "ERROR" : threshold >= 5 ? "WARN" : "INFO";
+              const suffix = threshold >= 10 ? " \u2014 investigate" : "";
+              emitLog(sev, sevText,
+                `Session cost crossed $${threshold.toFixed(2)}${suffix}`,
+                {
+                  "event.domain": "openclaw",
+                  "event.name": "cost.threshold",
+                  "openclaw.session_id": session.sessionId,
+                  "openclaw.session_key": session.sessionKey,
+                  "openclaw.cost_usd": session.totalCostUsd,
+                  "openclaw.threshold_usd": threshold,
+                  "openclaw.trace_source": "fallback_model_usage",
+                }, session.rootSpan);
+            }
+          }
+        }
+
+        // Latency tracking
+        if (durationMs > 0) {
+          session.latencies.push(durationMs);
+          if (session.latencies.length > LATENCY_RESERVOIR_SIZE) session.latencies.shift();
+          session.latencySum += durationMs;
+          session.latencyCount++;
+          session.latencyMin = Math.min(session.latencyMin, durationMs);
+          session.latencyMax = Math.max(session.latencyMax, durationMs);
+          latencyWindow.push(durationMs);
+          if (latencyWindow.length > LATENCY_WINDOW_SIZE) latencyWindow.shift();
+        }
+      }
+
+      // Increment fallback counter metric
+      instruments.traceFallbackSpans.add(1, { model, provider });
+    });
+  }
 
   // ── Helper: build child summary attributes for session summary logs ──
 
@@ -1101,6 +1254,19 @@ export function createLifecycleTelemetry(
     // ── llm_input → start LLM call span ──────────────────────────────
 
     onLlmInput(event, ctx) {
+      // Dual-path: latch hooks as active — disables model.usage fallback
+      if (!llmHooksActive) {
+        llmHooksActive = true;
+        if (fallbackModeLogged) {
+          emitLog(SeverityNumber.INFO, "INFO",
+            "LLM hooks restored — deactivating model.usage fallback",
+            {
+              "event.domain": "openclaw",
+              "event.name": "trace.fallback_deactivated",
+            });
+        }
+      }
+
       // Lazy session creation: if session_start was missed (fires before service init),
       // create a synthetic root span so all subsequent spans have correct parenting.
       let session = resolveSessionCtx(event.sessionId, ctx.sessionKey);
@@ -2273,6 +2439,11 @@ export function createLifecycleTelemetry(
 
     destroy() {
       clearInterval(cleanupInterval);
+      // Unsubscribe model.usage fallback listener
+      if (unsubscribeDiagnostic) {
+        unsubscribeDiagnostic();
+        unsubscribeDiagnostic = null;
+      }
       // Finalize all active sessions — setAttribute BEFORE finalizeSession because
       // finalizeSession calls rootSpan.end(), and OTel ignores attributes set after end()
       const now = Date.now();

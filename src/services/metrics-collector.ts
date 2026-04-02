@@ -349,6 +349,10 @@ export function createMetricsCollectorService(
         description: desc("openclaw_lens_prompt_injection_signals"),
       });
 
+      const traceFallbackSpans = meter.createCounter("openclaw_lens_trace_fallback_spans", {
+        description: desc("openclaw_lens_trace_fallback_spans"),
+      });
+
       // ── Initialize lifecycle telemetry (session-scoped traces) ────
       if (otelTraces && otelLogs) {
         const lifecycleOpts: LifecycleTelemetryOpts = {
@@ -361,6 +365,7 @@ export function createMetricsCollectorService(
             if (configPricing) return estimateUsageCost(configPricing, usage);
             return estimateCostFallback(provider, model, usage);
           },
+          onDiagnosticEvent: onDiagnosticEvent as LifecycleTelemetryOpts["onDiagnosticEvent"],
         };
         lifecycle = createLifecycleTelemetry(otelTraces, otelLogs, {
           tokenUsage,
@@ -382,6 +387,7 @@ export function createMetricsCollectorService(
           sessionResets,
           toolErrorClasses,
           promptInjectionSignals,
+          traceFallbackSpans,
         }, lifecycleOpts);
         ctx.logger.info("grafana-lens: lifecycle telemetry initialized (gen_ai traces + metrics)");
       } else {
