@@ -1,7 +1,7 @@
 {
   "name": "openclaw-grafana-lens",
-  "version": "0.4.1",
-  "description": "OpenClaw plugin that gives AI agents full Grafana access — 17 composable tools for PromQL/LogQL/TraceQL queries, dashboard creation, alerting, SRE investigation (multi-signal triage, anomaly detection, alert fatigue analysis), security monitoring (prompt injection detection, tool loop detection), and full OTLP observability (metrics, logs, traces) with gen_ai semantic conventions",
+  "version": "0.5.0",
+  "description": "OpenClaw plugin that gives AI agents full Grafana access — 18 composable tools for PromQL/LogQL/TraceQL queries, dashboard creation, alerting, SRE investigation, security monitoring, data collection pipeline management via Grafana Alloy (29 recipes), and full OTLP observability (metrics, logs, traces) with gen_ai semantic conventions",
   "type": "module",
   "license": "MIT",
   "keywords": [
@@ -54,7 +54,17 @@
     "anomaly-detection",
     "alert-fatigue",
     "hypothesis-generation",
-    "root-cause-analysis"
+    "root-cause-analysis",
+    "grafana-alloy",
+    "alloy",
+    "telemetry-collector",
+    "data-collection-pipeline",
+    "pipeline-management",
+    "prometheus-exporter",
+    "log-collection",
+    "trace-ingestion",
+    "profiling",
+    "pyroscope"
   ],
   "scripts": {
     "test": "vitest",
