@@ -41,6 +41,8 @@ import { createExplainMetricToolFactory } from "./src/tools/explain-metric.js";
 import { createSecurityCheckToolFactory } from "./src/tools/security-check.js";
 import { createQueryTracesToolFactory } from "./src/tools/query-traces.js";
 import { createInvestigateToolFactory } from "./src/tools/investigate.js";
+import { createAlloyService } from "./src/services/alloy-service.js";
+import { createAlloyPipelineToolFactory } from "./src/tools/alloy-pipeline.js";
 import type {
   SessionStartEvent, SessionStartCtx,
   SessionEndEvent, SessionEndCtx,
@@ -144,6 +146,16 @@ const plugin = {
     api.registerTool(createSecurityCheckToolFactory(registry));
     api.registerTool(createQueryTracesToolFactory(registry));
     api.registerTool(createInvestigateToolFactory(registry, alertStore));
+
+    // ── Register Alloy pipeline service + tool (opt-in) ────────────
+    const alloyConfig = validConfig.alloy;
+    if (alloyConfig?.enabled && alloyConfig.configDir) {
+      const { service: alloyService, getClient, getStore, getExportTargets } =
+        createAlloyService(alloyConfig, validConfig.otlp);
+      api.registerService(alloyService);
+      api.registerTool(createAlloyPipelineToolFactory({ getClient, getStore, getExportTargets }));
+      api.logger.info("grafana-lens: Alloy pipeline management enabled");
+    }
 
     // ── Register before_agent_start hook for alert awareness ─────────
     api.on("before_agent_start", (_event: unknown, _ctx: unknown) => {

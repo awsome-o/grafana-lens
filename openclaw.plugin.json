@@ -198,6 +198,59 @@
             "description": "Default TTL in days for custom metrics (omit for no expiry)"
           }
         }
+      },
+      "alloy": {
+        "type": "object",
+        "description": "Grafana Alloy pipeline management — create and manage data collection pipelines via the alloy_pipeline tool.",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Enable Alloy pipeline management",
+            "default": false
+          },
+          "url": {
+            "type": "string",
+            "description": "Alloy HTTP API base URL",
+            "default": "http://localhost:12345"
+          },
+          "configDir": {
+            "type": "string",
+            "description": "Directory where .alloy config files are written (must be readable by Alloy)"
+          },
+          "filePrefix": {
+            "type": "string",
+            "description": "Filename prefix for managed pipeline configs",
+            "default": "lens-"
+          },
+          "maxPipelines": {
+            "type": "number",
+            "description": "Maximum number of managed pipelines",
+            "default": 20
+          },
+          "lgtm": {
+            "type": "object",
+            "description": "LGTM backend URLs for generated pipeline configs (use Docker service names if Alloy runs in Docker)",
+            "additionalProperties": false,
+            "properties": {
+              "prometheusRemoteWriteUrl": {
+                "type": "string",
+                "description": "Prometheus remote_write endpoint",
+                "default": "http://localhost:9009/api/prom/push"
+              },
+              "lokiUrl": {
+                "type": "string",
+                "description": "Loki push endpoint",
+                "default": "http://localhost:3100/loki/api/v1/push"
+              },
+              "otlpEndpoint": {
+                "type": "string",
+                "description": "OTLP endpoint for traces/metrics/logs",
+                "default": "http://localhost:4318"
+              }
+            }
+          }
+        }
       }
     }
   },

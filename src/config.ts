@@ -68,6 +68,19 @@ export type GrafanaLensConfig = {
     maxLabelValues?: number;
     defaultTtlDays?: number;
   };
+  alloy?: {
+    enabled?: boolean;
+    url?: string;
+    configDir?: string;
+    filePrefix?: string;
+    maxPipelines?: number;
+    lgtm?: {
+      prometheusRemoteWriteUrl?: string;
+      lokiUrl?: string;
+      otlpEndpoint?: string;
+      pyroscopeUrl?: string;
+    };
+  };
 };
 
 /**
@@ -308,6 +321,35 @@ export function parseConfig(raw?: Record<string, unknown>): GrafanaLensConfig & 
       defaultTtlDays:
         (raw?.customMetrics as Record<string, unknown>)?.defaultTtlDays as number | undefined,
     },
+    alloy: parseAlloyConfig(raw?.alloy as Record<string, unknown> | undefined),
     ...(warnings.length > 0 ? { _warnings: warnings } : {}),
+  };
+}
+
+// ── Alloy config parsing ────────────────────────────────────────────
+
+function parseAlloyConfig(raw: Record<string, unknown> | undefined): GrafanaLensConfig["alloy"] {
+  if (!raw) return undefined;
+
+  const enabled = raw.enabled === true;
+  if (!enabled) return { enabled: false };
+
+  const url = (raw.url as string | undefined) ?? process.env.ALLOY_URL ?? "http://localhost:12345";
+  const configDir = (raw.configDir as string | undefined) ?? process.env.ALLOY_CONFIG_DIR;
+
+  const lgtmRaw = raw.lgtm as Record<string, unknown> | undefined;
+
+  return {
+    enabled: true,
+    url: url.replace(/\/+$/, ""),
+    configDir,
+    filePrefix: (raw.filePrefix as string | undefined) ?? "lens-",
+    maxPipelines: (raw.maxPipelines as number | undefined) ?? 20,
+    lgtm: lgtmRaw ? {
+      prometheusRemoteWriteUrl: lgtmRaw.prometheusRemoteWriteUrl as string | undefined,
+      lokiUrl: lgtmRaw.lokiUrl as string | undefined,
+      otlpEndpoint: lgtmRaw.otlpEndpoint as string | undefined,
+      pyroscopeUrl: lgtmRaw.pyroscopeUrl as string | undefined,
+    } : undefined,
   };
 }
