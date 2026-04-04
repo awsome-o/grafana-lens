@@ -4,7 +4,7 @@
 
 > **Note:** This is a community-built OpenClaw plugin, not an official Grafana Labs product. Grafana, Loki, Tempo, and Prometheus are trademarks of Grafana Labs.
 
-[OpenClaw](https://openclaw.com) is an open-source AI agent platform. Grafana Lens extends it with full Grafana integration — 17 composable tools that let your agent query metrics and logs, trace distributed requests, create dashboards, set up alerts, render charts, run security audits, investigate incidents, and push custom data — all through natural language conversation.
+[OpenClaw](https://openclaw.com) is an open-source AI agent platform. Grafana Lens extends it with full Grafana integration — 18 composable tools that let your agent query metrics and logs, trace distributed requests, create dashboards, set up alerts, render charts, run security audits, investigate incidents, push custom data, and manage data collection pipelines — all through natural language conversation.
 
 ---
 
@@ -19,18 +19,20 @@
 | **"I can't debug multi-step agent sessions"** | Hierarchical traces: session → LLM call → tool execution, with log-to-trace correlation |
 | **"My alert fired — now what?"** | `grafana_investigate` gathers metrics, logs, traces in parallel and generates hypotheses with specific tool+params for follow-up |
 | **"I want to track my own data in Grafana"** | Push any custom metrics (fitness, calendar, git, finance) from conversation |
+| **"How do I get my data INTO Grafana?"** | `alloy_pipeline` sets up data collection from databases, Docker, Kubernetes, log files, and more — 29 recipes, just describe what you want to monitor |
 
 ---
 
 ## Key Features
 
-- **17 Composable Agent Tools** — Query PromQL/LogQL/TraceQL, create dashboards, set alerts, share panel images, run security checks, investigate incidents, push custom metrics, and more
+- **18 Composable Agent Tools** — Query PromQL/LogQL/TraceQL, create dashboards, set alerts, share panel images, run security checks, investigate incidents, push custom metrics, manage data collection pipelines, and more
 - **SRE Investigation** — Multi-signal triage (`grafana_investigate`), anomaly scoring with z-score against 7-day baselines, seasonality comparison, and alert fatigue detection
 - **Full OTLP Observability** — Metrics → Prometheus, Logs → Loki, Traces → Tempo. Push-based with no scraping — data is available immediately
 - **Security Monitoring** — 6-check threat assessment covering prompt injection, cost anomalies, tool loops, session enumeration, webhook errors, and stuck sessions
 - **12 Pre-Built Dashboard Templates** — From LLM Command Center and Cost Intelligence to Security Overview and SRE Operations
 - **Custom Data Observatory** — Push any external data (calendar events, git commits, fitness stats, financial metrics) into Grafana via conversation
 - **Works with ANY Datasource** — Not limited to OpenClaw metrics. Query any Prometheus or Loki datasource configured in your Grafana instance
+- **Data Collection Pipeline Management** — 29 pre-built Alloy pipeline recipes across 5 categories (metrics, logs, traces, infrastructure, profiling) — describe what you want to monitor and the agent handles the Alloy configuration
 
 ---
 
@@ -51,6 +53,11 @@ export GRAFANA_SERVICE_ACCOUNT_TOKEN=glsa_xxxxxxxxxxxx
 
 # 4. Restart the gateway to load the plugin
 openclaw gateway restart
+
+# Optional: Enable Alloy pipeline management (for data collection)
+# See "Alloy Pipeline Management" section below for full setup
+export ALLOY_URL=http://localhost:12345
+export ALLOY_CONFIG_DIR=/path/to/alloy/config.d
 ```
 
 ---
@@ -64,6 +71,7 @@ openclaw gateway restart
   - [Configuration](#3-configuration)
 - [What Can You Do?](#what-can-you-do)
 - [Agent Tools](#agent-tools)
+- [Alloy Pipeline Management](#alloy-pipeline-management)
 - [Dashboard Templates](#dashboard-templates)
 - [Security Monitoring](#security-monitoring)
 - [Custom Metrics](#custom-metrics-data-observatory)
@@ -135,6 +143,54 @@ openclaw plugins install -l ~/workspace/grafana-lens
 openclaw gateway restart
 ```
 
+### 2b. Grafana Alloy (Optional -- Data Collection Pipelines)
+
+[Grafana Alloy](https://grafana.com/docs/alloy/latest/) is Grafana Labs' open-source telemetry collector. It collects metrics, logs, traces, and profiles from your infrastructure and applications, then forwards them to backends like Prometheus, Loki, Tempo, and Pyroscope. Think of it as the "data pipeline" -- it gets your data INTO Grafana.
+
+Grafana Lens manages Alloy pipelines through the `alloy_pipeline` tool. Once Alloy is running, the agent can create, update, delete, and diagnose pipelines via conversation -- just describe what you want to monitor.
+
+#### Option A: Docker Compose (Full LGTM + Alloy Stack)
+
+The [alloy-scenarios](https://github.com/grafana/alloy/tree/main/example) repository includes a `grafana-lens-test` environment with a complete LGTM + Alloy stack:
+
+```bash
+cd alloy-scenarios/grafana-lens-test
+docker compose --env-file ../image-versions.env up -d
+
+# Verify
+curl -sf http://localhost:3000/api/health && echo "Grafana OK"
+curl -sf http://localhost:12345/-/ready && echo "Alloy OK"
+curl -sf http://localhost:9090/-/ready && echo "Prometheus OK"
+```
+
+| Service | Port | Purpose |
+|---------|------|---------|
+| Alloy | 12345 | Telemetry collector (HTTP API + live debugging UI) |
+| Grafana | 3000 | Dashboards and visualization |
+| Prometheus | 9090 | Metrics storage |
+| Loki | -- | Log aggregation |
+| Tempo | -- | Distributed tracing |
+
+#### Option B: Add Alloy to an Existing Setup
+
+Install Alloy standalone ([installation guide](https://grafana.com/docs/alloy/latest/set-up/install/)):
+
+```bash
+# macOS
+brew install grafana/grafana/alloy
+
+# Linux (Debian/Ubuntu)
+sudo apt install alloy
+
+# Run in directory mode (loads all .alloy files from the directory)
+mkdir -p /path/to/alloy/config.d
+alloy run /path/to/alloy/config.d/
+```
+
+Alloy runs its HTTP API on port `12345` by default. Grafana Lens communicates with this API to reload configuration after creating or updating pipelines. No restart needed -- Alloy picks up new config files via a hot-reload API call.
+
+> **Key insight:** `alloy.url` in plugin config uses `localhost:12345` (your machine → Alloy), but `alloy.lgtm.*` URLs use Docker service names (e.g., `http://prometheus:9090`) because they are embedded in generated `.alloy` configs that run *inside* Docker. If you're running everything on bare metal, all URLs use `localhost`.
+
 ### 3. Configuration
 
 #### Minimal Setup (Environment Variables)
@@ -187,6 +243,19 @@ For more control, add the plugin config to `~/.openclaw/openclaw.json`:
             "maxLabelsPerMetric": 5,               // max label keys per metric
             "maxLabelValues": 50,                  // max unique label combos per metric
             "defaultTtlDays": null                 // optional auto-expiry in days
+          },
+          "alloy": {
+            "enabled": true,                       // enable Alloy pipeline management (default: false)
+            "url": "http://localhost:12345",        // Alloy HTTP API (or set ALLOY_URL env var)
+            "configDir": "/path/to/alloy/config.d", // where pipeline configs are written (or set ALLOY_CONFIG_DIR)
+            "filePrefix": "lens-",                 // prefix for managed config files (default: "lens-")
+            "maxPipelines": 20,                    // max managed pipelines (default: 20)
+            "lgtm": {                              // export target URLs embedded in generated configs
+              "prometheusRemoteWriteUrl": "http://prometheus:9090/api/v1/write",
+              "lokiUrl": "http://loki:3100/loki/api/v1/push",
+              "otlpEndpoint": "http://tempo:4318",
+              "pyroscopeUrl": "http://localhost:4040"  // optional, for profiling recipes
+            }
           }
         }
       }
@@ -203,6 +272,8 @@ For more control, add the plugin config to `~/.openclaw/openclaw.json`:
 | `GRAFANA_SERVICE_ACCOUNT_TOKEN` | `grafana.apiKey` | Service account token |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `otlp.endpoint` | OTLP collector base URL (auto-appends `/v1/metrics`) |
 | `OTEL_EXPORTER_OTLP_HEADERS` | `otlp.headers` | Custom headers in `key=value,key2=value2` format |
+| `ALLOY_URL` | `alloy.url` | Alloy HTTP API URL (default: `http://localhost:12345`) |
+| `ALLOY_CONFIG_DIR` | `alloy.configDir` | Directory where pipeline config files are written |
 
 Config precedence: explicit plugin config > environment variables > defaults.
 
@@ -226,6 +297,10 @@ Just talk to your agent in natural language:
 - **"Investigate this alert"** — Gathers metrics, logs, traces, and annotations in parallel and suggests hypotheses with specific follow-up tool+params
 - **"Is this metric anomalous?"** — Shows z-score against 7-day baseline, seasonality comparison (vs 1 day ago, vs 7 days ago), and severity rating
 - **"Which alerts are noisy?"** — Detects always-firing, flapping, and error/nodata rules with optimization suggestions
+- **"Monitor my Postgres database"** — Creates an Alloy pipeline using the postgres-exporter recipe with credential handling and sample queries
+- **"Collect Docker container logs"** — Sets up a docker-logs pipeline that forwards container logs to Loki
+- **"Set up OTLP trace collection"** — Deploys an otlp-receiver pipeline to accept traces from your applications
+- **"What pipelines are running?"** — Lists all managed Alloy pipelines with status and signal type
 - **Create and customize your own unique dashboards** — Combine any data from Prometheus, Loki, or custom metrics to build personalized monitoring views
 
 ### For Grafana Power Users — Let an AI Agent Manage Your Grafana
@@ -243,7 +318,7 @@ Just talk to your agent in natural language:
 
 ## Agent Tools
 
-All 17 tools are registered automatically when the plugin loads. The agent decides when to use each tool based on your request.
+All 18 tools are registered automatically when the plugin loads. The agent decides when to use each tool based on your request.
 
 | Tool | Description | Example Use |
 |------|-------------|-------------|
@@ -264,6 +339,63 @@ All 17 tools are registered automatically when the plugin loads. The agent decid
 | `grafana_security_check` | Run 6 parallel security checks → threat level report | "Am I being attacked?" |
 | `grafana_query_traces` | Run TraceQL queries against Tempo; search traces or get full trace by ID | "Find slow traces" / "Show trace for session X" |
 | `grafana_investigate` | Multi-signal investigation triage with hypothesis generation | "Investigate this alert" / "What's wrong?" / "Root cause" |
+| `alloy_pipeline` | Create and manage Alloy data collection pipelines (29 recipes, 7 actions) | "Monitor my Postgres DB" / "Collect Docker logs" / "Pipeline status" |
+
+---
+
+## Alloy Pipeline Management
+
+The `alloy_pipeline` tool manages [Grafana Alloy](https://grafana.com/docs/alloy/latest/) data collection pipelines. Alloy is Grafana Labs' open-source telemetry collector -- it gets your data INTO Grafana by collecting metrics, logs, traces, and profiles from your infrastructure and forwarding them to the LGTM stack.
+
+### How It Works
+
+1. **Describe what you want to monitor** -- "monitor my Postgres database", "collect Docker logs", "set up OTLP trace ingestion"
+2. **The agent selects a recipe** -- 29 pre-built templates handle common scenarios with validation, credential management, and sample queries
+3. **Config is generated and hot-reloaded** -- An Alloy `.alloy` config file is written and Alloy picks it up via API reload (no restart needed)
+4. **Data flows automatically** -- The agent verifies data flow and provides sample queries and suggested next steps (dashboards, alerts)
+
+For custom patterns not covered by recipes, the agent can write raw Alloy River config directly.
+
+### 7 Actions
+
+| Action | What It Does |
+|--------|-------------|
+| `create` | Deploy a new pipeline from a recipe or raw config |
+| `list` | Show all managed pipelines with status |
+| `update` | Change pipeline parameters or replace raw config |
+| `delete` | Remove a pipeline and its config file |
+| `recipes` | Browse the recipe catalog by category |
+| `status` | Check component health and data flow for a pipeline |
+| `diagnose` | Full system check: Alloy connectivity, all pipeline health, config drift, orphan files |
+
+### Recipe Categories (29 Recipes)
+
+| Category | Count | Examples |
+|----------|-------|---------|
+| **Metrics** | 11 | scrape-endpoint, node-exporter, postgres-exporter, mysql-exporter, redis-exporter, kubernetes-pods |
+| **Logs** | 10 | docker-logs, file-logs, syslog, kubernetes-logs, kafka-logs, faro-frontend |
+| **Traces** | 4 | otlp-receiver, application-traces, span-metrics, service-graph |
+| **Infrastructure** | 3 | docker-metrics, elasticsearch-exporter, kafka-exporter |
+| **Profiling** | 1 | continuous-profiling (Pyroscope) |
+
+Use `alloy_pipeline` with action `recipes` to browse the full catalog with required parameters and descriptions.
+
+### Credential Handling
+
+Recipes that require credentials (database passwords, API keys) use Alloy's `sys.env()` function -- secrets are referenced as environment variables, never written to config files. The tool response includes `envVarsRequired` listing which variables must be set where Alloy runs.
+
+> **Important:** Alloy config reload is atomic. If a credential recipe's env vars aren't set, the reload failure blocks ALL managed pipelines until the env vars are set or the pipeline is deleted. The agent will warn you and ask if you have the credentials ready before creating such pipelines.
+
+### Workflow Integration
+
+After creating a pipeline, the tool provides `suggestedWorkflow` with concrete next-step tool calls:
+
+1. `alloy_pipeline` action `status` -- verify data flow (data takes ~15-20s to appear)
+2. `grafana_list_metrics` or `grafana_query_logs` -- discover collected data
+3. `grafana_create_dashboard` -- visualize the data
+4. `grafana_create_alert` -- set up monitoring
+
+> **Tip:** For real-world Alloy scenario examples (Postgres monitoring, Docker logs, Kubernetes, Kafka, OTLP tracing, and more), see the [alloy-scenarios](https://github.com/grafana/alloy/tree/main/example) repository.
 
 ---
 
@@ -412,55 +544,66 @@ Definitions persist across restarts in `${stateDir}/custom-metrics.json`.
 Grafana Lens is a **self-contained OpenClaw plugin** — all Grafana interaction is handled by the bundled `GrafanaClient`. No external MCP servers, no additional infrastructure beyond the LGTM stack.
 
 ```
-┌─────────────────────────────────────────────────┐
-│  OpenClaw Agent                                 │
-│  (processes messages, invokes tools)            │
-│                                                 │
-│  ┌─────────────────────────────────────────┐    │
-│  │  Grafana Lens Plugin                    │    │
-│  │  • 17 Agent Tools                       │    │
-│  │  • MetricsCollector Service             │    │
-│  │  • AlertWebhook Service                 │    │
-│  │  • LifecycleTelemetry (16 hooks)        │    │
-│  │  • Bundled GrafanaClient (REST API)     │    │
-│  └────────────┬────────────────────────────┘    │
-│               │                                 │
-└───────────────┼─────────────────────────────────┘
-                │
-    ┌───────────┴───────────┐
-    │ OTLP HTTP Push (:4318)│
-    │  /v1/metrics          │
-    │  /v1/logs             │
-    │  /v1/traces           │
-    └───────────┬───────────┘
-                │
-┌───────────────┴─────────────────────────────────┐
-│  LGTM Stack (grafana/otel-lgtm)                 │
-│  ┌──────────────┐  ┌──────┐  ┌───────┐         │
-│  │ Prometheus   │  │ Loki │  │ Tempo │         │
-│  │ (:9090)      │  │      │  │       │         │
-│  │ Metrics      │  │ Logs │  │Traces │         │
-│  └──────┬───────┘  └──┬───┘  └──┬────┘         │
-│         └──────────────┼────────┬┘              │
-│                   ┌────┴────────┴───┐           │
-│                   │   Grafana       │           │
-│                   │   (:3000)       │           │
-│                   │   Dashboards    │           │
-│                   └─────────────────┘           │
-└─────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────┐
+│  OpenClaw Agent                                     │
+│  (processes messages, invokes tools)                │
+│                                                     │
+│  ┌─────────────────────────────────────────────┐    │
+│  │  Grafana Lens Plugin                        │    │
+│  │  • 18 Agent Tools                           │    │
+│  │  • MetricsCollector Service                 │    │
+│  │  • AlertWebhook Service                     │    │
+│  │  • AlloyPipeline Service                    │    │
+│  │  • LifecycleTelemetry (16 hooks)            │    │
+│  │  • Bundled GrafanaClient (REST API)         │    │
+│  │  • Bundled AlloyClient (REST API)           │    │
+│  └────────────┬──────────────┬─────────────────┘    │
+│               │              │                      │
+└───────────────┼──────────────┼──────────────────────┘
+                │              │
+    ┌───────────┴──────┐  ┌────┴──────────────────┐
+    │ OTLP HTTP Push   │  │ Alloy HTTP API        │
+    │ (:4318)          │  │ (:12345)              │
+    │  /v1/metrics     │  │  /-/reload            │
+    │  /v1/logs        │  │  /api/v0/components   │
+    │  /v1/traces      │  └────┬──────────────────┘
+    └───────┬──────────┘       │
+            │       ┌──────────┴──────────────────┐
+            │       │ Grafana Alloy               │
+            │       │ (data collection)           │
+            │       │ Reads config.d/*.alloy      │
+            │       │ Hot-reload via API           │
+            │       │ Scrapes, tails, receives     │
+            │       └──────────┬──────────────────┘
+            │                  │ remote_write / loki.write / otel
+┌───────────┴──────────────────┴──────────────────────┐
+│  LGTM Stack                                         │
+│  ┌──────────────┐  ┌──────┐  ┌───────┐             │
+│  │ Prometheus   │  │ Loki │  │ Tempo │             │
+│  │ (:9090)      │  │      │  │       │             │
+│  │ Metrics      │  │ Logs │  │Traces │             │
+│  └──────┬───────┘  └──┬───┘  └──┬────┘             │
+│         └──────────────┼────────┬┘                  │
+│                   ┌────┴────────┴───┐               │
+│                   │   Grafana       │               │
+│                   │   (:3000)       │               │
+│                   │   Dashboards    │               │
+│                   └─────────────────┘               │
+└─────────────────────────────────────────────────────┘
 ```
 
 ### Key Design Decisions
 
 | Decision | Choice | Why |
 |----------|--------|-----|
-| Everything is tools | 17 composable tools, no background automation | Agent decides when to act; Grafana handles scheduled work |
+| Everything is tools | 18 composable tools, no background automation | Agent decides when to act; Grafana handles scheduled work |
 | Self-contained | Bundled GrafanaClient (REST API) | No external MCP servers or dependencies |
 | OTLP push | Push-based metrics, logs, traces | No scraping delay — data available immediately |
 | General-purpose | Works with ANY Grafana datasource | Not limited to `openclaw_lens_*` metrics |
 | Alert provenance | `X-Disable-Provenance` header | Agent-created alert rules remain editable in Grafana UI |
 | Panel rendering | Grafana Image Renderer plugin | Persistent dashboards + three-tier fallback (PNG → snapshot → deep link) |
 | Secret redaction | Auto-strips API keys before OTLP export | Prevents token leakage into observability pipelines |
+| Alloy hot-reload | Write config file, POST `/-/reload` | Atomic config updates; failed reloads keep previous config running |
 
 ### Relationship with diagnostics-otel
 
@@ -591,6 +734,15 @@ For privacy-sensitive deployments, configure what's included in telemetry:
 | `customMetrics.maxLabelsPerMetric` | number | `5` | Max label keys per metric |
 | `customMetrics.maxLabelValues` | number | `50` | Max unique label combos per metric |
 | `customMetrics.defaultTtlDays` | number | `null` | Optional auto-expiry (days) |
+| `alloy.enabled` | boolean | `false` | Enable Alloy pipeline management |
+| `alloy.url` | string | `"http://localhost:12345"` | Alloy HTTP API URL |
+| `alloy.configDir` | string | -- | Directory for pipeline config files (required when enabled) |
+| `alloy.filePrefix` | string | `"lens-"` | Prefix for managed config file names |
+| `alloy.maxPipelines` | number | `20` | Maximum managed pipelines |
+| `alloy.lgtm.prometheusRemoteWriteUrl` | string | `"http://localhost:9009/api/prom/push"` | Prometheus remote write endpoint (used in generated configs) |
+| `alloy.lgtm.lokiUrl` | string | `"http://localhost:3100/loki/api/v1/push"` | Loki push endpoint |
+| `alloy.lgtm.otlpEndpoint` | string | (derived from `otlp.endpoint`) | OTLP endpoint for trace/metrics export |
+| `alloy.lgtm.pyroscopeUrl` | string | `"http://localhost:4040"` | Pyroscope endpoint (profiling recipes) |
 
 ---
 
@@ -624,7 +776,7 @@ grafana-lens/
 │   ├── config.ts                     # Config parsing and validation
 │   ├── grafana-client.ts             # Bundled Grafana REST API client
 │   ├── metric-definitions.ts         # Shared metric registry
-│   ├── tools/                        # 17 agent tools
+│   ├── tools/                        # 18 agent tools
 │   │   ├── query.ts                  # grafana_query
 │   │   ├── query-logs.ts             # grafana_query_logs
 │   │   ├── create-dashboard.ts       # grafana_create_dashboard
@@ -641,10 +793,19 @@ grafana-lens/
 │   │   ├── explain-metric.ts         # grafana_explain_metric
 │   │   ├── security-check.ts         # grafana_security_check
 │   │   ├── query-traces.ts           # grafana_query_traces
-│   │   └── investigate.ts            # grafana_investigate
+│   │   ├── investigate.ts            # grafana_investigate
+│   │   └── alloy-pipeline.ts         # alloy_pipeline
+│   ├── alloy/                        # Alloy pipeline management
+│   │   ├── alloy-client.ts           # Alloy HTTP API client
+│   │   ├── pipeline-store.ts         # Pipeline state persistence
+│   │   ├── pipeline-helpers.ts       # Config generation helpers
+│   │   ├── types.ts                  # Shared Alloy types
+│   │   └── recipes/                  # 29 pipeline recipe definitions
+│   │       └── catalog.ts            # Recipe registry
 │   ├── services/
 │   │   ├── metrics-collector.ts      # Diagnostic event → OTLP push
 │   │   ├── alert-webhook.ts          # Grafana alert webhook handler
+│   │   ├── alloy-service.ts          # Alloy pipeline lifecycle management
 │   │   ├── otel-metrics.ts           # MeterProvider (local, no global)
 │   │   ├── otel-logs.ts              # LoggerProvider
 │   │   ├── otel-traces.ts            # TracerProvider
