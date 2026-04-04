@@ -331,6 +331,7 @@ Credential recipes use a two-phase creation flow:
 
 1. **Create**: Config is written to disk. Alloy attempts to reload.
 2. **If env vars aren't set**: Alloy reload fails, but the config file stays. Pipeline enters `pending_credentials` status. The response includes `envVarsRequired` with exact env var names.
+   > **Blast radius**: Alloy reload is atomic — a single failed config blocks reload for ALL managed pipelines, not just the new one. Existing healthy pipelines continue running on their last good config, but any subsequent create/update/delete operations will fail until the env vars are set or the broken pipeline is deleted.
 3. **User sets env vars** where Alloy runs (shell env, systemd unit, Docker env, K8s secret).
 4. **Verify**: Use action `status` — the pipeline auto-promotes to `active` once Alloy components are healthy.
 
