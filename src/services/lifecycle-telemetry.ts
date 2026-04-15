@@ -583,8 +583,13 @@ export function createLifecycleTelemetry(
   const activeToolCalls = new Map<string, ToolCallEntry[]>();
 
   // Dual-path trace fallback: model.usage → synthetic chat spans when hooks broken
+  // Grace-period trigger: a single cold-start model.usage event that arrives before the
+  // first llm_input hook is expected (event ordering, plugin init timing). Only warn
+  // after FALLBACK_WARN_THRESHOLD orphaned events — past that, hooks are really broken.
   let llmHooksActive = false;
   let fallbackModeLogged = false;
+  let fallbackOrphanedCount = 0;
+  const FALLBACK_WARN_THRESHOLD = 2;
   let unsubscribeDiagnostic: (() => void) | null = null;
 
   // ── Parent-child subagent tracking ──────────────────────────────────
@@ -692,17 +697,24 @@ export function createLifecycleTelemetry(
       // When hooks work, they handle everything — model.usage is dormant
       if (llmHooksActive) return;
 
-      // First activation: one-time WARN log
+      // Grace period: tolerate cold-start race where model.usage arrives before the
+      // first llm_input. Only warn after repeated orphaned events past the threshold.
+      // Gate the counter so it stops incrementing once the warn has fired — keeps
+      // the value bounded and stable (matches the ${count} interpolated in the log body).
       if (!fallbackModeLogged) {
-        fallbackModeLogged = true;
-        emitLog(SeverityNumber.WARN, "WARN",
-          "LLM hook dispatch appears broken — activating model.usage fallback for trace generation. " +
-          "Upgrade openclaw to v2026.4.2+ to restore full hook-based tracing.",
-          {
-            "event.domain": "openclaw",
-            "event.name": "trace.fallback_activated",
-            "openclaw.trace_source": "fallback_model_usage",
-          });
+        fallbackOrphanedCount += 1;
+        if (fallbackOrphanedCount >= FALLBACK_WARN_THRESHOLD) {
+          fallbackModeLogged = true;
+          emitLog(SeverityNumber.WARN, "WARN",
+            `LLM hook dispatch appears broken — activating model.usage fallback for trace generation after ${fallbackOrphanedCount} orphaned events. ` +
+            "Trace fidelity will be reduced. If this persists across multiple LLM calls, file a bug at github.com/awsome-o/grafana-lens/issues with your openclaw version.",
+            {
+              "event.domain": "openclaw",
+              "event.name": "trace.fallback_activated",
+              "openclaw.trace_source": "fallback_model_usage",
+              "openclaw.fallback.orphaned_count": fallbackOrphanedCount,
+            });
+        }
       }
 
       const now = Date.now();
@@ -1254,10 +1266,14 @@ export function createLifecycleTelemetry(
     // ── llm_input → start LLM call span ──────────────────────────────
 
     onLlmInput(event, ctx) {
-      // Dual-path: latch hooks as active — disables model.usage fallback
+      // Dual-path: latch hooks as active — disables model.usage fallback.
+      // Reset orphan counter and logged flag so a future hook outage is detected fresh.
       if (!llmHooksActive) {
         llmHooksActive = true;
-        if (fallbackModeLogged) {
+        const wasFallbackActive = fallbackModeLogged;
+        fallbackOrphanedCount = 0;
+        fallbackModeLogged = false;
+        if (wasFallbackActive) {
           emitLog(SeverityNumber.INFO, "INFO",
             "LLM hooks restored — deactivating model.usage fallback",
             {

@@ -4668,6 +4668,24 @@ describe("LifecycleTelemetry", () => {
     lt.destroy();
   });
 
+  test("single orphaned model.usage does not activate fallback (grace period)", () => {
+    const diag = makeDiagnosticMock();
+    const lt = createLifecycleTelemetry(traces, logs, instruments, {
+      onDiagnosticEvent: diag.subscribe as unknown as NonNullable<Parameters<typeof createLifecycleTelemetry>[3]>["onDiagnosticEvent"],
+    });
+
+    // One cold-start-style orphaned event should create a synthetic span but NOT warn
+    diag.fire(makeModelUsageEvent());
+    expect(instruments.traceFallbackSpans.add).toHaveBeenCalledTimes(1);
+
+    const warnLogs = mockLogEmit.mock.calls.filter(
+      (c: Array<Record<string, unknown>>) => c[0]?.body?.toString().includes("hook dispatch appears broken"),
+    );
+    expect(warnLogs.length).toBe(0);
+
+    lt.destroy();
+  });
+
   test("WARN log fires on first fallback activation only", () => {
     const diag = makeDiagnosticMock();
     const lt = createLifecycleTelemetry(traces, logs, instruments, {
@@ -4716,10 +4734,15 @@ describe("LifecycleTelemetry", () => {
       onDiagnosticEvent: diag.subscribe as unknown as NonNullable<Parameters<typeof createLifecycleTelemetry>[3]>["onDiagnosticEvent"],
     });
 
-    // Activate fallback
+    // Activate fallback — needs at least 2 orphaned events to pass the grace-period threshold
     lt.onSessionStart({ sessionId: "s-rec" }, { sessionId: "s-rec" });
     diag.fire(makeModelUsageEvent({ sessionId: "s-rec" }));
-    expect(instruments.traceFallbackSpans.add).toHaveBeenCalledTimes(1);
+    diag.fire(makeModelUsageEvent({ sessionId: "s-rec" }));
+    expect(instruments.traceFallbackSpans.add).toHaveBeenCalledTimes(2);
+    const warnLogs = mockLogEmit.mock.calls.filter(
+      (c: Array<Record<string, unknown>>) => c[0]?.body?.toString().includes("hook dispatch appears broken"),
+    );
+    expect(warnLogs.length).toBe(1);
 
     // Now hooks recover
     lt.onLlmInput(

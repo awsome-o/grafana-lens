@@ -113,6 +113,12 @@ export function jsonResult(payload: unknown): {
   };
 }
 
+// ── Error formatting ──────────────────────────────────────────────
+
+export function getErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 // ── SDK hook resolution (dynamic import fallback) ─────────────────
 
 export type DiagnosticHooks = {

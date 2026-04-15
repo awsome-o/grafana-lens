@@ -18,6 +18,7 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { createRequire } from "node:module";
 import { parseConfig, validateConfig } from "./src/config.js";
+import { getErrorMessage } from "./src/sdk-compat.js";
 import { GrafanaClientRegistry } from "./src/grafana-client-registry.js";
 import { createMetricsCollectorService } from "./src/services/metrics-collector.js";
 
@@ -184,31 +185,53 @@ const plugin = {
     // ══════════════════════════════════════════════════════════════════
 
     if (validConfig.metrics?.enabled !== false) {
-      // Helper for hooks not yet in the published PluginHookName type
-      const apiOn = (name: string, handler: (...args: unknown[]) => void) =>
-        (api as unknown as { on: (name: string, handler: (...args: unknown[]) => void) => void }).on(name, handler);
+      // Count successful hook registrations so the startup log reports the real
+      // number (not a hardcoded count that drifts as hooks are added/removed).
+      // Also surfaces per-hook errors if api.on throws or is unavailable.
+      const registered: string[] = [];
+      const registerHookSafe = <E, C>(
+        name: string,
+        handler: (event: E, ctx: C) => void | Promise<void>,
+      ) => {
+        try {
+          (api as unknown as {
+            on: (n: string, h: (event: E, ctx: C) => void | Promise<void>) => void;
+          }).on(name, handler);
+          registered.push(name);
+        } catch (err) {
+          api.logger.warn(
+            `grafana-lens: failed to register "${name}" hook: ${getErrorMessage(err)}`,
+          );
+        }
+      };
+      // Helper for hooks not yet in the published PluginHookName type — accepts
+      // async handlers too so Promise-returning callbacks aren't silently dropped.
+      const apiOn = (
+        name: string,
+        handler: (event: unknown, ctx: unknown) => void | Promise<void>,
+      ) => registerHookSafe(name, handler);
 
       // ── TIER 1: Critical (root-cause analysis + gen_ai compliance) ────
 
-      api.on("session_start", (event: SessionStartEvent, ctx: SessionStartCtx) => {
+      registerHookSafe<SessionStartEvent, SessionStartCtx>("session_start", (event, ctx) => {
         getLifecycleTelemetry()?.onSessionStart(event, ctx);
       });
 
-      api.on("session_end", async (event: SessionEndEvent, ctx: SessionEndCtx) => {
+      registerHookSafe<SessionEndEvent, SessionEndCtx>("session_end", async (event, ctx) => {
         getLifecycleTelemetry()?.onSessionEnd(event, ctx);
         // Flush session summary log + trace spans immediately (avoid batch delay data loss)
         await getLifecycleTelemetry()?.flushAll();
       });
 
-      api.on("llm_input", (event: LlmInputEvent, ctx: LlmInputCtx) => {
+      registerHookSafe<LlmInputEvent, LlmInputCtx>("llm_input", (event, ctx) => {
         getLifecycleTelemetry()?.onLlmInput(event, ctx);
       });
 
-      api.on("llm_output", (event: LlmOutputEvent, ctx: LlmOutputCtx) => {
+      registerHookSafe<LlmOutputEvent, LlmOutputCtx>("llm_output", (event, ctx) => {
         getLifecycleTelemetry()?.onLlmOutput(event, ctx);
       });
 
-      api.on("agent_end", async (event: AgentEndEvent, ctx: AgentEndCtx) => {
+      registerHookSafe<AgentEndEvent, AgentEndCtx>("agent_end", async (event, ctx) => {
         getLifecycleTelemetry()?.onAgentEnd(event, ctx);
         // Flush FINAL summary log + closed root span immediately (same pattern as session_end)
         await getLifecycleTelemetry()?.flushAll();
@@ -216,19 +239,19 @@ const plugin = {
 
       // ── TIER 2: High value (operational awareness) ────────────────────
 
-      api.on("message_received", (event: MessageReceivedEvent, ctx: MessageReceivedCtx) => {
+      registerHookSafe<MessageReceivedEvent, MessageReceivedCtx>("message_received", (event, ctx) => {
         getLifecycleTelemetry()?.onMessageReceived(event, ctx);
       });
 
-      api.on("message_sent", (event: MessageSentEvent, ctx: MessageSentCtx) => {
+      registerHookSafe<MessageSentEvent, MessageSentCtx>("message_sent", (event, ctx) => {
         getLifecycleTelemetry()?.onMessageSent(event, ctx);
       });
 
-      api.on("before_compaction", (event: BeforeCompactionEvent, ctx: BeforeCompactionCtx) => {
+      registerHookSafe<BeforeCompactionEvent, BeforeCompactionCtx>("before_compaction", (event, ctx) => {
         getLifecycleTelemetry()?.onBeforeCompaction(event, ctx);
       });
 
-      api.on("after_compaction", (event: AfterCompactionEvent, ctx: AfterCompactionCtx) => {
+      registerHookSafe<AfterCompactionEvent, AfterCompactionCtx>("after_compaction", (event, ctx) => {
         getLifecycleTelemetry()?.onAfterCompaction(event, ctx);
       });
 
@@ -251,7 +274,7 @@ const plugin = {
       });
 
       // ── UPGRADED: after_tool_call → gen_ai execute_tool convention ────
-      api.on("after_tool_call", (event: AfterToolCallEvent, ctx: AfterToolCallCtx) => {
+      registerHookSafe<AfterToolCallEvent, AfterToolCallCtx>("after_tool_call", (event, ctx) => {
         getLifecycleTelemetry()?.onAfterToolCall(event, ctx);
       });
 
@@ -283,7 +306,9 @@ const plugin = {
         getLifecycleTelemetry()?.onGatewayStop(event as GatewayStopEvent);
       });
 
-      api.logger.info("grafana-lens: registered 17 tools, services, and 16 lifecycle hooks");
+      api.logger.info(
+        `grafana-lens: registered 17 tools, services, and ${registered.length} lifecycle hooks [${registered.join(", ")}]`,
+      );
     } else {
       api.logger.info("grafana-lens: registered 17 tools and services (lifecycle hooks skipped — metrics disabled)");
     }
