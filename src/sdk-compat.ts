@@ -119,6 +119,37 @@ export function getErrorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+// ── Process-global singleton helper ───────────────────────────────
+
+/**
+ * Resolve or create a process-wide singleton keyed by a symbol on globalThis.
+ *
+ * Mirrors `resolveGlobalSingleton` from `openclaw/plugin-sdk/global-singleton`
+ * (the canonical SDK helper). We vendor it because openclaw 2026.4.25 declares
+ * the subpath in `package.json` exports but doesn't ship `dist/.../global-singleton.js`,
+ * so a direct import would crash at runtime. When upstream fixes the packaging,
+ * this helper can be swapped for `import { resolveGlobalSingleton } from "openclaw/plugin-sdk/global-singleton"`.
+ */
+export function resolveGlobalSingleton<T>(key: symbol, create: () => T): T {
+  const store = globalThis as Record<PropertyKey, unknown>;
+  if (Object.prototype.hasOwnProperty.call(store, key)) {
+    return store[key] as T;
+  }
+  const created = create();
+  store[key] = created;
+  return created;
+}
+
+/**
+ * Test-only: drop a singleton entry created by `resolveGlobalSingleton`.
+ * Production code must not call this — it bypasses the re-register protection
+ * the singleton exists to provide.
+ */
+export function clearGlobalSingletonForTests(key: symbol): void {
+  const store = globalThis as Record<PropertyKey, unknown>;
+  delete store[key];
+}
+
 // ── SDK hook resolution (dynamic import fallback) ─────────────────
 
 export type DiagnosticHooks = {

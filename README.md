@@ -51,7 +51,12 @@ openclaw plugins install openclaw-grafana-lens
 export GRAFANA_URL=http://localhost:3000
 export GRAFANA_SERVICE_ACCOUNT_TOKEN=glsa_xxxxxxxxxxxx
 
-# 4. Restart the gateway to load the plugin
+# 4. (openclaw >= 2026.4.24 only) Opt in to LLM telemetry hooks
+#    Required for token usage / cost / session-summary metrics.
+#    See "Enable LLM telemetry on openclaw 2026.4.24+" below for the full explanation.
+openclaw config set 'plugins.entries.openclaw-grafana-lens.hooks.allowConversationAccess' true
+
+# 5. Restart the gateway to load the plugin
 openclaw gateway restart
 
 # Optional: Enable Alloy pipeline management (for data collection)
@@ -212,6 +217,9 @@ For more control, add the plugin config to `~/.openclaw/openclaw.json`:
     "entries": {
       "openclaw-grafana-lens": {
         "enabled": true,
+        "hooks": {
+          "allowConversationAccess": true   // openclaw >= 2026.4.24 — see section below
+        },
         "config": {
           "grafana": {
             "url": "http://localhost:3000",        // or set GRAFANA_URL env var
@@ -263,6 +271,27 @@ For more control, add the plugin config to `~/.openclaw/openclaw.json`:
   }
 }
 ```
+
+#### Enable LLM telemetry on openclaw 2026.4.24+
+
+openclaw 2026.4.24 added a privacy gate that **silently blocks the `llm_input`, `llm_output`, and `agent_end` hooks** for non-bundled plugins (anything installed via `openclaw plugins install`, including this one). Without an explicit opt-in, you'll see:
+
+- **Missing metrics:** `gen_ai.client.token.usage`, `gen_ai.client.operation.duration`, `openclaw_lens_sessions_completed_total`, `openclaw_lens_session_message_types_total`
+- **Missing logs:** Loki `{component="lifecycle"}` entries with `event_name` of `llm.input`, `llm.output`, `agent.end`, or `usage.session_summary`
+- **A WARN at runtime:** `LLM hook dispatch appears broken — activating model.usage fallback for trace generation ...`
+
+To opt in, add `hooks.allowConversationAccess: true` under your plugin entry — already shown in the Full Configuration block above. Or via the CLI:
+
+```bash
+openclaw config set 'plugins.entries.openclaw-grafana-lens.hooks.allowConversationAccess' true
+openclaw gateway restart
+```
+
+What this consents to: openclaw will pass prompt content, completion content, and final agent state to our hook handlers so we can record them as gen_ai-spec spans + token-usage metrics. The plugin still respects `otlp.captureContent` (default `true`) and `otlp.redactSecrets` (default `true`), so even after opt-in you can suppress raw content or strip sensitive substrings before they leave your machine.
+
+If you want token counts and cost without exposing prompt content to the OTLP collector, opt in here AND set `"otlp": { "captureContent": false }` — the metrics still fire, the spans/logs just don't include prompt/completion bodies.
+
+On openclaw < 2026.4.24 the gate doesn't exist and the opt-in isn't needed. **Heads up:** openclaw versions that don't yet recognize the `hooks` key (observed on `2026.4.24` and earlier) reject the whole plugin config as invalid and **crash-loop the gateway** at startup with `Unrecognized key: "hooks"`. If `openclaw gateway restart` keeps failing after you add the opt-in, remove the `hooks` block and upgrade openclaw before re-adding it.
 
 #### Environment Variable Fallbacks
 
@@ -688,6 +717,8 @@ Grafana Lens registers 16 lifecycle hooks into OpenClaw for deep observability:
 `session_start`, `session_end`, `llm_input`, `llm_output`, `agent_end`, `message_received`, `message_sent`, `before_compaction`, `after_compaction`, `subagent_spawned`, `subagent_ended`, `before_tool_call`, `after_tool_call`, `before_reset`, `gateway_start`, `gateway_stop`
 
 These hooks power the session-scoped traces, gen_ai standard metrics, security signals, and SRE operational data.
+
+> **openclaw 2026.4.24+ note:** Three of these hooks (`llm_input`, `llm_output`, `agent_end`) are gated behind a privacy opt-in for non-bundled plugins. Without `plugins.entries.openclaw-grafana-lens.hooks.allowConversationAccess: true` in your config, openclaw silently rejects them and you'll lose token usage, cost, and final-session-summary telemetry. See [Enable LLM telemetry on openclaw 2026.4.24+](#enable-llm-telemetry-on-openclaw-2026424) for the full setup.
 
 ### Content Capture Controls
 

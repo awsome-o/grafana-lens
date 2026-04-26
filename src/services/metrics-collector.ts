@@ -18,7 +18,11 @@ import type {
   OpenClawPluginService,
   OpenClawPluginServiceContext,
 } from "openclaw/plugin-sdk";
-import { resolveDiagnosticHooks } from "../sdk-compat.js";
+import {
+  clearGlobalSingletonForTests,
+  resolveDiagnosticHooks,
+  resolveGlobalSingleton,
+} from "../sdk-compat.js";
 import { redactSecrets, flattenLogKeys } from "./redact.js";
 
 // tool.loop event type exists in openclaw source but is not yet published
@@ -68,6 +72,75 @@ const GEN_AI_DURATION_BUCKETS = [
   0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64, 1.28, 2.56, 5.12, 10.24, 20.48, 40.96, 81.92,
 ];
 
+// ─────────────────────────────────────────────────────────────────────
+// Process-level singleton state.
+//
+// openclaw 2026.4.24+ invokes register() multiple times per process — once on
+// gateway boot, then again per agent turn — and replaces hook handlers each
+// pass. Per-instance closures meant the latest pass' handlers held lifecycle=null
+// (start() never re-ran), so events silently no-op'd. Hoisting OTel + lifecycle
+// onto a globalThis-keyed singleton lets every register pass share live
+// instances. start() becomes idempotent. See GitHub issue #6.
+// ─────────────────────────────────────────────────────────────────────
+
+type SingletonState = {
+  unsubscribe: (() => void) | null;
+  unsubscribeLogTransport: (() => void) | null;
+  midnightTimeout: NodeJS.Timeout | null;
+  customStore: CustomMetricsStore | null;
+  otel: OtelMetrics | null;
+  otelLogs: OtelLogs | null;
+  otelTraces: OtelTraces | null;
+  lifecycle: LifecycleTelemetry | null;
+  started: boolean;
+};
+
+// Naming follows openclaw house style (`openclaw.<area>.<purpose>.state.v<N>`)
+// — the `.v1` suffix lets us bump the schema later without colliding with stale
+// state from a previous deploy in the same process.
+const SINGLETON_KEY = Symbol.for("openclaw.grafana-lens.metricsCollector.state.v1");
+
+function freshSingletonState(): SingletonState {
+  return {
+    unsubscribe: null,
+    unsubscribeLogTransport: null,
+    midnightTimeout: null,
+    customStore: null,
+    otel: null,
+    otelLogs: null,
+    otelTraces: null,
+    lifecycle: null,
+    started: false,
+  };
+}
+
+/**
+ * Test-only: drain the in-flight OTel pipeline (so batch exporter timers don't
+ * leak across vitest runs — `BatchLogRecordProcessor` / `BatchSpanProcessor`
+ * intervals are not unref'd by the SDK) and drop the process-wide singleton so
+ * the next createMetricsCollectorService() call rebuilds from scratch.
+ *
+ * Do NOT call this from production code — it bypasses the openclaw 2026.4.24+
+ * re-register protection that this singleton exists to provide.
+ */
+export async function __resetMetricsCollectorSingletonForTests(): Promise<void> {
+  const store = globalThis as Record<PropertyKey, unknown>;
+  const existing = store[SINGLETON_KEY] as SingletonState | undefined;
+  if (existing) {
+    existing.unsubscribeLogTransport?.();
+    existing.unsubscribe?.();
+    if (existing.midnightTimeout) clearTimeout(existing.midnightTimeout);
+    await Promise.allSettled([
+      existing.customStore?.stopPeriodicFlush(),
+      existing.otelLogs?.shutdown(),
+      existing.otelTraces?.shutdown(),
+      existing.otel?.shutdown(),
+    ]);
+    existing.lifecycle?.destroy();
+  }
+  clearGlobalSingletonForTests(SINGLETON_KEY);
+}
+
 export function createMetricsCollectorService(
   config: ValidatedGrafanaLensConfig,
   alertStore?: AlertStore,
@@ -79,14 +152,7 @@ export function createMetricsCollectorService(
   getOtelLogs: () => OtelLogs | null;
   getLifecycleTelemetry: () => LifecycleTelemetry | null;
 } {
-  let unsubscribe: (() => void) | null = null;
-  let unsubscribeLogTransport: (() => void) | null = null;
-  let midnightTimeout: NodeJS.Timeout | null = null;
-  let customStore: CustomMetricsStore | null = null;
-  let otel: OtelMetrics | null = null;
-  let otelLogs: OtelLogs | null = null;
-  let otelTraces: OtelTraces | null = null;
-  let lifecycle: LifecycleTelemetry | null = null;
+  const state = resolveGlobalSingleton(SINGLETON_KEY, freshSingletonState);
 
   const service: OpenClawPluginService = {
     id: "grafana-lens-metrics",
@@ -96,6 +162,12 @@ export function createMetricsCollectorService(
         ctx.logger.info("grafana-lens: metrics collection disabled");
         return;
       }
+
+      if (state.started) {
+        ctx.logger.debug?.("grafana-lens: metrics collector already started (singleton — re-register skipped)");
+        return;
+      }
+      state.started = true;
 
       // ── Resolve SDK hooks (version-resilient dynamic import) ────
       const hooks = await resolveDiagnosticHooks();
@@ -116,7 +188,7 @@ export function createMetricsCollectorService(
       const endpoints = deriveOtlpEndpoints(otlpConfig.endpoint);
 
       // ── Initialize OTLP metrics provider ────────────────────────
-      otel = createOtelMetrics({
+      state.otel = createOtelMetrics({
         endpoint: endpoints.metrics,
         headers: otlpConfig.headers,
         exportIntervalMs: otlpConfig.exportIntervalMs,
@@ -126,7 +198,7 @@ export function createMetricsCollectorService(
 
       // ── Initialize OTLP logs provider ───────────────────────────
       if (otlpConfig.logs !== false) {
-        otelLogs = createOtelLogs({
+        state.otelLogs = createOtelLogs({
           endpoint: endpoints.logs,
           headers: otlpConfig.headers,
           serviceVersion: pluginVersion,
@@ -137,7 +209,7 @@ export function createMetricsCollectorService(
 
       // ── Initialize OTLP traces provider ─────────────────────────
       if (otlpConfig.traces !== false) {
-        otelTraces = createOtelTraces({
+        state.otelTraces = createOtelTraces({
           endpoint: endpoints.traces,
           headers: otlpConfig.headers,
           serviceVersion: pluginVersion,
@@ -168,7 +240,7 @@ export function createMetricsCollectorService(
 
       ctx.logger.info(`grafana-lens: instance ID: ${otlpConfig.instanceId}`);
 
-      const { meter } = otel;
+      const { meter } = state.otel;
 
       // ── Custom metrics push tracking (Counter) ─────────────────
       const customMetricsPushedTotal = meter.createCounter("openclaw_lens_custom_metrics_pushed_total", {
@@ -182,9 +254,9 @@ export function createMetricsCollectorService(
           headers: otlpConfig.headers,
         });
 
-        customStore = new CustomMetricsStore(
+        state.customStore = new CustomMetricsStore(
           meter,
-          () => otel?.forceFlush() ?? Promise.resolve(),
+          () => state.otel?.forceFlush() ?? Promise.resolve(),
           ctx.stateDir,
           ctx.logger,
           {
@@ -195,8 +267,8 @@ export function createMetricsCollectorService(
           otlpWriter,
           customMetricsPushedTotal,
         );
-        await customStore.load();
-        customStore.startPeriodicFlush();
+        await state.customStore.load();
+        state.customStore.startPeriodicFlush();
         ctx.logger.info("grafana-lens: custom metrics store initialized");
       }
 
@@ -354,7 +426,7 @@ export function createMetricsCollectorService(
       });
 
       // ── Initialize lifecycle telemetry (session-scoped traces) ────
-      if (otelTraces && otelLogs) {
+      if (state.otelTraces && state.otelLogs) {
         const lifecycleOpts: LifecycleTelemetryOpts = {
           ...(pluginVersion ? { agentVersion: pluginVersion } : {}),
           captureContent: otlpConfig.captureContent,
@@ -367,7 +439,7 @@ export function createMetricsCollectorService(
           },
           onDiagnosticEvent: onDiagnosticEvent as LifecycleTelemetryOpts["onDiagnosticEvent"],
         };
-        lifecycle = createLifecycleTelemetry(otelTraces, otelLogs, {
+        state.lifecycle = createLifecycleTelemetry(state.otelTraces, state.otelLogs, {
           tokenUsage,
           operationDuration,
           sessionsStartedTotal,
@@ -392,8 +464,8 @@ export function createMetricsCollectorService(
         ctx.logger.info("grafana-lens: lifecycle telemetry initialized (gen_ai traces + metrics)");
       } else {
         const missing: string[] = [];
-        if (!otelLogs) missing.push("otlp.logs");
-        if (!otelTraces) missing.push("otlp.traces");
+        if (!state.otelLogs) missing.push("otlp.logs");
+        if (!state.otelTraces) missing.push("otlp.traces");
         ctx.logger.warn(`grafana-lens: lifecycle telemetry disabled (${missing.join(" + ")} not enabled) — session traces and gen_ai metrics will not be collected`);
       }
 
@@ -401,7 +473,7 @@ export function createMetricsCollectorService(
       // APP LOG FORWARDING (Part 3) — forward openclaw's tslog output to Loki
       // ══════════════════════════════════════════════════════════════
 
-      if (otelLogs && otlpConfig.forwardAppLogs !== false) {
+      if (state.otelLogs && otlpConfig.forwardAppLogs !== false) {
         const SEVERITY_MAP: Record<string, number> = {
           TRACE: SeverityNumber.TRACE,
           DEBUG: SeverityNumber.DEBUG,
@@ -422,11 +494,11 @@ export function createMetricsCollectorService(
 
         const minSeverity = SEVERITY_FLOOR_MAP[otlpConfig.appLogMinSeverity ?? "debug"] ?? SeverityNumber.DEBUG;
         const shouldRedactAppLogs = otlpConfig.redactSecrets !== false;
-        const appLogger = otelLogs.logger;
+        const appLogger = state.otelLogs.logger;
 
         try {
           if (!registerLogTransport) throw new Error("not available");
-          unsubscribeLogTransport = registerLogTransport((logObj: unknown) => {
+          state.unsubscribeLogTransport = registerLogTransport((logObj: unknown) => {
             try {
               const obj = logObj as Record<string, unknown>;
               const meta = obj._meta as Record<string, unknown> | undefined;
@@ -643,11 +715,11 @@ export function createMetricsCollectorService(
         const now = new Date();
         const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
         const msUntilMidnight = tomorrow.getTime() - now.getTime() + 100; // +100ms margin
-        midnightTimeout = setTimeout(() => {
+        state.midnightTimeout = setTimeout(() => {
           dailyCostUsd = 0;
           scheduleNextMidnightReset();
         }, msUntilMidnight);
-        if (midnightTimeout.unref) midnightTimeout.unref();
+        if (state.midnightTimeout.unref) state.midnightTimeout.unref();
       }
       scheduleNextMidnightReset();
 
@@ -675,21 +747,21 @@ export function createMetricsCollectorService(
       meter.createObservableGauge("openclaw_lens_session_latency_avg_ms", {
         description: desc("openclaw_lens_session_latency_avg_ms"),
       }).addCallback(safeCallback("session_latency_avg_ms", (result) => {
-        if (lifecycle) result.observe(lifecycle.getAvgLatencyMs());
+        if (state.lifecycle) result.observe(state.lifecycle.getAvgLatencyMs());
       }));
 
       // ── Unique sessions 1h (ObservableGauge — security) ──────────
       meter.createObservableGauge("openclaw_lens_unique_sessions_1h", {
         description: desc("openclaw_lens_unique_sessions_1h"),
       }).addCallback(safeCallback("unique_sessions_1h", (result) => {
-        if (lifecycle) result.observe(lifecycle.getUniqueSessionCount1h());
+        if (state.lifecycle) result.observe(state.lifecycle.getUniqueSessionCount1h());
       }));
 
       // ══════════════════════════════════════════════════════════════
       // DIAGNOSTIC EVENT HANDLER — metrics + logs + traces
       // ══════════════════════════════════════════════════════════════
 
-      unsubscribe = onDiagnosticEvent(((evt: ExtendedDiagnosticEvent) => {
+      state.unsubscribe = onDiagnosticEvent(((evt: ExtendedDiagnosticEvent) => {
         // ── Metrics (gauge updates) ────────────────────────────────
         switch (evt.type) {
           case "model.usage": {
@@ -708,8 +780,8 @@ export function createMetricsCollectorService(
             }
             if (costUsd) dailyCostUsd += costUsd;
             // Debug log when cost resolves to zero (helps trace root cause in Loki)
-            if (!costUsd && otelLogs) {
-              otelLogs.logger.emit({
+            if (!costUsd && state.otelLogs) {
+              state.otelLogs.logger.emit({
                 severityNumber: SeverityNumber.DEBUG,
                 severityText: "DEBUG",
                 body: `model.usage cost=0 for ${evt.model ?? "unknown"} — neither costUsd, config pricing, nor fallback resolved`,
@@ -740,11 +812,11 @@ export function createMetricsCollectorService(
               cacheSavingsUsd += evt.usage.cacheRead * (15 - 1.5) / 1_000_000;
             }
             // Context window pressure warning (Part 6B)
-            if (otelLogs && evt.context?.used && evt.context?.limit && evt.context.limit > 0) {
+            if (state.otelLogs && evt.context?.used && evt.context?.limit && evt.context.limit > 0) {
               const ratio = evt.context.used / evt.context.limit;
               if (ratio > 0.8) {
                 const pct = Math.round(ratio * 100);
-                otelLogs.logger.emit({
+                state.otelLogs.logger.emit({
                   severityNumber: SeverityNumber.WARN,
                   severityText: "WARN",
                   body: `Context window ${pct}% full (${evt.context.used}/${evt.context.limit} tokens) — compaction imminent`,
@@ -857,20 +929,20 @@ export function createMetricsCollectorService(
 
         // ── Traces (agent lifecycle spans) ─────────────────────────
         let spanResult: { traceId: string; context: Context } | undefined;
-        if (otelTraces) {
-          spanResult = emitTraceSpan(otelTraces, evt, lifecycle);
+        if (state.otelTraces) {
+          spanResult = emitTraceSpan(state.otelTraces, evt, state.lifecycle);
         }
 
         // ── Logs (verbose structured log records) ──────────────────
-        if (otelLogs) {
-          emitLogRecord(otelLogs, evt, spanResult, lifecycle);
+        if (state.otelLogs) {
+          emitLogRecord(state.otelLogs, evt, spanResult, state.lifecycle);
         }
 
         // ── Flush logs/traces for critical events (avoid batch delay data loss)
         const isCritical = evt.type === "session.state" || evt.type === "message.processed";
         if (isCritical) {
-          if (otelLogs) otelLogs.forceFlush().catch(() => {});
-          if (otelTraces && spanResult) otelTraces.forceFlush().catch(() => {});
+          if (state.otelLogs) state.otelLogs.forceFlush().catch(() => {});
+          if (state.otelTraces && spanResult) state.otelTraces.forceFlush().catch(() => {});
         }
       }) as (evt: DiagnosticEventPayload) => void);
 
@@ -891,46 +963,49 @@ export function createMetricsCollectorService(
     },
 
     async stop(_ctx: OpenClawPluginServiceContext) {
-      if (lifecycle) {
-        lifecycle.destroy();
-        lifecycle = null;
+      if (!state.started) return;
+      state.started = false;
+
+      if (state.lifecycle) {
+        state.lifecycle.destroy();
+        state.lifecycle = null;
       }
-      if (customStore) {
-        await customStore.stopPeriodicFlush();
-        customStore = null;
+      if (state.customStore) {
+        await state.customStore.stopPeriodicFlush();
+        state.customStore = null;
       }
       // Unsubscribe log transport BEFORE shutting down log provider (follows diagnostics-otel order)
-      if (unsubscribeLogTransport) {
-        unsubscribeLogTransport();
-        unsubscribeLogTransport = null;
+      if (state.unsubscribeLogTransport) {
+        state.unsubscribeLogTransport();
+        state.unsubscribeLogTransport = null;
       }
-      unsubscribe?.();
-      unsubscribe = null;
-      if (midnightTimeout) {
-        clearTimeout(midnightTimeout);
-        midnightTimeout = null;
+      state.unsubscribe?.();
+      state.unsubscribe = null;
+      if (state.midnightTimeout) {
+        clearTimeout(state.midnightTimeout);
+        state.midnightTimeout = null;
       }
-      if (otelLogs) {
-        await otelLogs.shutdown();
-        otelLogs = null;
+      if (state.otelLogs) {
+        await state.otelLogs.shutdown();
+        state.otelLogs = null;
       }
-      if (otelTraces) {
-        await otelTraces.shutdown();
-        otelTraces = null;
+      if (state.otelTraces) {
+        await state.otelTraces.shutdown();
+        state.otelTraces = null;
       }
-      if (otel) {
-        await otel.shutdown();
-        otel = null;
+      if (state.otel) {
+        await state.otel.shutdown();
+        state.otel = null;
       }
     },
   };
 
   return {
     service,
-    getCustomMetricsStore: () => customStore,
-    getOtelTraces: () => otelTraces,
-    getOtelLogs: () => otelLogs,
-    getLifecycleTelemetry: () => lifecycle,
+    getCustomMetricsStore: () => state.customStore,
+    getOtelTraces: () => state.otelTraces,
+    getOtelLogs: () => state.otelLogs,
+    getLifecycleTelemetry: () => state.lifecycle,
   };
 }
 

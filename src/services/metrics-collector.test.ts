@@ -155,7 +155,10 @@ vi.mock("./lifecycle-telemetry.js", () => ({
 
 // ── Imports (after mocks) ────────────────────────────────────────────
 
-import { createMetricsCollectorService } from "./metrics-collector.js";
+import {
+  createMetricsCollectorService,
+  __resetMetricsCollectorSingletonForTests,
+} from "./metrics-collector.js";
 import type { ValidatedGrafanaLensConfig } from "../config.js";
 
 function makeConfig(overrides?: Partial<ValidatedGrafanaLensConfig>): ValidatedGrafanaLensConfig {
@@ -195,7 +198,12 @@ describe("MetricsCollector service", () => {
   let eventListener: ((evt: Record<string, unknown>) => void) | null = null;
   const unsubscribeMock = vi.fn();
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    // Reset the process-wide singleton so each test gets a fresh start()/stop()
+    // cycle. Drains OTel exporter timers before clearing — otherwise abandoned
+    // BatchLogRecordProcessor / BatchSpanProcessor intervals (not unref'd by
+    // the SDK) accumulate across tests. Production keeps the singleton shared.
+    await __resetMetricsCollectorSingletonForTests();
     eventListener = null;
     otelState.counters.clear();
     otelState.histograms.clear();

@@ -707,7 +707,11 @@ export function createLifecycleTelemetry(
           fallbackModeLogged = true;
           emitLog(SeverityNumber.WARN, "WARN",
             `LLM hook dispatch appears broken — activating model.usage fallback for trace generation after ${fallbackOrphanedCount} orphaned events. ` +
-            "Trace fidelity will be reduced. If this persists across multiple LLM calls, file a bug at github.com/awsome-o/grafana-lens/issues with your openclaw version.",
+            "Trace fidelity will be reduced. " +
+            "On openclaw >= 2026.4.24 this most often means the privacy gate is active: " +
+            "set plugins.entries.openclaw-grafana-lens.hooks.allowConversationAccess=true in ~/.openclaw/openclaw.json " +
+            "and restart the gateway to enable llm_input/llm_output/agent_end hooks. " +
+            "If the warning persists after that, file a bug at github.com/awsome-o/grafana-lens/issues with your openclaw version.",
             {
               "event.domain": "openclaw",
               "event.name": "trace.fallback_activated",
