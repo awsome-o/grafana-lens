@@ -16,14 +16,11 @@
  */
 
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
-import { createRequire } from "node:module";
 import { parseConfig, validateConfig } from "./src/config.js";
 import { getErrorMessage } from "./src/sdk-compat.js";
 import { GrafanaClientRegistry } from "./src/grafana-client-registry.js";
 import { createMetricsCollectorService } from "./src/services/metrics-collector.js";
-
-const require = createRequire(import.meta.url);
-const { version: PLUGIN_VERSION } = require("./package.json") as { version: string };
+import { PLUGIN_VERSION } from "./src/version.js";
 import { createAlertWebhookService } from "./src/services/alert-webhook.js";
 import { createDashboardToolFactory } from "./src/tools/create-dashboard.js";
 import { createQueryToolFactory } from "./src/tools/query.js";
