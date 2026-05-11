@@ -2,8 +2,30 @@
   "id": "openclaw-grafana-lens",
   "name": "Grafana Lens",
   "description": "Agent-driven Grafana — query, visualize, alert, and deliver to messaging channels",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "skills": ["./skills"],
+  "contracts": {
+    "tools": [
+      "grafana_create_dashboard",
+      "grafana_update_dashboard",
+      "grafana_get_dashboard",
+      "grafana_share_dashboard",
+      "grafana_search",
+      "grafana_query",
+      "grafana_query_logs",
+      "grafana_query_traces",
+      "grafana_list_metrics",
+      "grafana_explore_datasources",
+      "grafana_explain_metric",
+      "grafana_create_alert",
+      "grafana_check_alerts",
+      "grafana_annotate",
+      "grafana_push_metrics",
+      "grafana_security_check",
+      "grafana_investigate",
+      "alloy_pipeline"
+    ]
+  },
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
