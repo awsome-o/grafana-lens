@@ -13,7 +13,7 @@
  *   - Non-blocking startup: logs warnings if Alloy is unreachable but doesn't fail
  */
 
-import type { OpenClawPluginService, OpenClawPluginServiceContext } from "openclaw/plugin-sdk";
+import type { OpenClawPluginService, OpenClawPluginServiceContext } from "openclaw/plugin-sdk/core";
 import type { GrafanaLensConfig, ValidatedGrafanaLensConfig } from "../config.js";
 
 export type AlloyConfig = NonNullable<GrafanaLensConfig["alloy"]>;

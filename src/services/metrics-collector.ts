@@ -13,11 +13,11 @@
  * enabling Grafana's "Logs to Traces" feature (click Loki log → jump to Tempo trace).
  */
 
+import type { DiagnosticEventPayload } from "openclaw/plugin-sdk";
 import type {
-  DiagnosticEventPayload,
   OpenClawPluginService,
   OpenClawPluginServiceContext,
-} from "openclaw/plugin-sdk";
+} from "openclaw/plugin-sdk/core";
 import {
   clearGlobalSingletonForTests,
   resolveDiagnosticHooks,

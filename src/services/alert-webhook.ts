@@ -18,7 +18,7 @@
 import type {
   OpenClawPluginService,
   OpenClawPluginServiceContext,
-} from "openclaw/plugin-sdk";
+} from "openclaw/plugin-sdk/core";
 import type { ValidatedGrafanaLensConfig } from "../config.js";
 
 // ── Grafana webhook payload types ──────────────────────────────────
