@@ -2,7 +2,7 @@
   "id": "openclaw-grafana-lens",
   "name": "Grafana Lens",
   "description": "Agent-driven Grafana — query, visualize, alert, and deliver to messaging channels",
-  "version": "0.5.4",
+  "version": "0.5.5",
   "skills": ["./skills"],
   "contracts": {
     "tools": [

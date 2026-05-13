@@ -165,25 +165,34 @@ export type DiagnosticHooks = {
 };
 
 /**
+ * Minimal logger shape (matches `OpenClawPluginServiceContext.logger` without
+ * requiring the SDK type import). Pass `ctx.logger` from a plugin service start.
+ */
+export type SdkResolverLogger = {
+  warn?: (msg: string) => void;
+  debug?: (msg: string) => void;
+};
+
+/**
  * Resolve SDK diagnostic hooks from whichever subpath is available.
  *
  * Order matters:
  *   1. `plugin-sdk/diagnostic-runtime` — canonical scoped subpath (openclaw >= 2026.5.0).
- *      This is the explicit migration target named in `plugin-sdk/compat`'s
- *      deprecation warning. Present in every 2026.5.x release.
+ *      Explicit migration target named in `plugin-sdk/compat`'s deprecation warning.
+ *      Present in every 2026.5.x release.
  *   2. `plugin-sdk` root — re-exports `onDiagnosticEvent` for older openclaw versions.
  *      May or may not work on 2026.5.5+ depending on dist bundling.
  *
- * `plugin-sdk/diagnostics-otel` was tried previously but never shipped in any
- * release we support (git-verified at v2026.5.5). Removed.
+ * Failures emit `logger.warn` with the import path + Node error code (e.g.
+ * `ERR_MODULE_NOT_FOUND`) so operators see the actionable reason in the
+ * gateway log, not a generic "not available" line.
  *
- * `plugin-sdk/compat` is omitted: it works but emits a process.emitWarning on
- * import. We have a non-deprecated canonical path; no need to noise the logs.
- *
- * Set `GRAFANA_LENS_DEBUG_SDK=1` to surface import failures — silent catch was
- * what made Issue #9 hard to diagnose.
+ * The `GRAFANA_LENS_DEBUG_SDK=1` env var continues to mirror failures to
+ * `console.warn` for environments where no logger is wired (tests, scripts).
  */
-export async function resolveDiagnosticHooks(): Promise<DiagnosticHooks> {
+export async function resolveDiagnosticHooks(
+  logger?: SdkResolverLogger,
+): Promise<DiagnosticHooks> {
   const hooks: DiagnosticHooks = { onDiagnosticEvent: null, registerLogTransport: null };
   const paths = [
     "openclaw/plugin-sdk/diagnostic-runtime",
@@ -193,18 +202,28 @@ export async function resolveDiagnosticHooks(): Promise<DiagnosticHooks> {
     try {
       const m: Record<string, unknown> = await import(p);
       if (typeof m.onDiagnosticEvent === "function") {
+        if (!hooks.onDiagnosticEvent) {
+          logger?.debug?.(`grafana-lens: sdk-compat: resolved onDiagnosticEvent from ${p}`);
+        }
         hooks.onDiagnosticEvent ??= m.onDiagnosticEvent as DiagnosticHooks["onDiagnosticEvent"];
       }
       if (typeof m.registerLogTransport === "function") {
         hooks.registerLogTransport ??= m.registerLogTransport as DiagnosticHooks["registerLogTransport"];
       }
     } catch (err) {
+      const code = (err as NodeJS.ErrnoException)?.code ?? "import-error";
+      const rawMsg = getErrorMessage(err);
+      const msg = rawMsg.length > 200 ? `${rawMsg.slice(0, 197)}...` : rawMsg;
+      const line = `grafana-lens: sdk-compat: import("${p}") failed: ${code}: ${msg}`;
+      logger?.warn?.(line);
       if (process.env.GRAFANA_LENS_DEBUG_SDK) {
         // eslint-disable-next-line no-console
-        console.warn(`[grafana-lens] sdk-compat: import("${p}") failed:`, err);
+        console.warn(line);
       }
     }
-    if (hooks.onDiagnosticEvent && hooks.registerLogTransport) break;
+    // registerLogTransport is permanently null at openclaw 2026.5.5+; only
+    // onDiagnosticEvent gates the early break.
+    if (hooks.onDiagnosticEvent) break;
   }
   return hooks;
 }

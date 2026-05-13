@@ -170,15 +170,15 @@ export function createMetricsCollectorService(
       state.started = true;
 
       // ── Resolve SDK hooks (version-resilient dynamic import) ────
-      const hooks = await resolveDiagnosticHooks();
+      const hooks = await resolveDiagnosticHooks(ctx.logger);
       const onDiagnosticEvent = hooks.onDiagnosticEvent as
         ((listener: (evt: DiagnosticEventPayload) => void) => () => void) | null;
       const { registerLogTransport } = hooks;
       if (!onDiagnosticEvent) {
         ctx.logger.error(
-          "grafana-lens: onDiagnosticEvent not available — cannot start metrics collection. " +
-          "This usually means an incompatible openclaw version. " +
-          "Please report at https://github.com/anthropics/openclaw/issues",
+          "grafana-lens: onDiagnosticEvent not available — metrics collection disabled. " +
+          "Check the preceding 'sdk-compat: import(...)' warnings for the underlying reason. " +
+          "Report at https://github.com/awsome-o/grafana-lens/issues with the full startup log.",
         );
         return;
       }
