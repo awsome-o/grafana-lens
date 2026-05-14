@@ -28,6 +28,52 @@ describe("resolveDiagnosticHooks logger plumbing", () => {
   );
 
   it.skipIf(!openclawInstalled)(
+    "resolves onInternalDiagnosticEvent against installed openclaw — required for model.usage delivery on 2026.5.7+",
+    async () => {
+      vi.resetModules();
+      const mod = await import("./sdk-compat.js");
+      const hooks = await mod.resolveDiagnosticHooks();
+      expect(hooks.onInternalDiagnosticEvent).toBeTypeOf("function");
+    },
+  );
+
+  it.skipIf(!openclawInstalled)(
+    "warns when onInternalDiagnosticEvent is missing but onDiagnosticEvent resolved",
+    async () => {
+      vi.resetModules();
+      // Patch only `onInternalDiagnosticEvent` to absence; keep `onDiagnosticEvent` real.
+      vi.doMock("openclaw/plugin-sdk/diagnostic-runtime", async () => {
+        const actual = await vi.importActual<Record<string, unknown>>(
+          "openclaw/plugin-sdk/diagnostic-runtime",
+        );
+        const { onInternalDiagnosticEvent: _drop, ...rest } = actual;
+        return rest;
+      });
+      vi.doMock("openclaw/plugin-sdk", async () => {
+        const actual = await vi.importActual<Record<string, unknown>>("openclaw/plugin-sdk");
+        const { onInternalDiagnosticEvent: _drop2, ...rest } = actual;
+        return rest;
+      });
+      try {
+        const mod = await import("./sdk-compat.js");
+        const logger = { warn: vi.fn(), debug: vi.fn() };
+        const hooks = await mod.resolveDiagnosticHooks(logger);
+
+        expect(hooks.onDiagnosticEvent).toBeTypeOf("function");
+        expect(hooks.onInternalDiagnosticEvent).toBeNull();
+        const warned = logger.warn.mock.calls
+          .map((c) => c[0] as string)
+          .some((line) => line.includes("onInternalDiagnosticEvent not exported"));
+        expect(warned).toBe(true);
+      } finally {
+        vi.doUnmock("openclaw/plugin-sdk/diagnostic-runtime");
+        vi.doUnmock("openclaw/plugin-sdk");
+        vi.resetModules();
+      }
+    },
+  );
+
+  it.skipIf(!openclawInstalled)(
     "warns with path and 'failed:' when a subpath import fails, then falls through",
     async () => {
       vi.resetModules();

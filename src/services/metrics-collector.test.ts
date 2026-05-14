@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 // ── Hoisted mocks ────────────────────────────────────────────────────
 
 const onDiagnosticEventMock = vi.hoisted(() => vi.fn());
+const onInternalDiagnosticEventMock = vi.hoisted(() => vi.fn());
 
 /** Track all OTel instrument operations */
 const otelState = vi.hoisted(() => {
@@ -72,6 +73,7 @@ vi.mock("../sdk-compat.js", async () => {
     ...actual,
     resolveDiagnosticHooks: vi.fn().mockResolvedValue({
       onDiagnosticEvent: onDiagnosticEventMock,
+      onInternalDiagnosticEvent: onInternalDiagnosticEventMock,
       registerLogTransport: registerLogTransportMock,
     }),
   };
@@ -210,10 +212,13 @@ describe("MetricsCollector service", () => {
     otelState.upDownCounters.clear();
     otelState.observableGauges.clear();
     onDiagnosticEventMock.mockReset();
-    onDiagnosticEventMock.mockImplementation((listener: (evt: Record<string, unknown>) => void) => {
-      eventListener = listener;
-      return unsubscribeMock;
-    });
+    onInternalDiagnosticEventMock.mockReset();
+    onInternalDiagnosticEventMock.mockImplementation(
+      (listener: (evt: Record<string, unknown>, metadata?: { trusted?: boolean }) => void) => {
+        eventListener = (evt: Record<string, unknown>) => listener(evt, { trusted: true });
+        return unsubscribeMock;
+      },
+    );
     unsubscribeMock.mockClear();
     otelState.mockShutdown.mockClear();
     mockLogEmit.mockClear();
@@ -242,7 +247,23 @@ describe("MetricsCollector service", () => {
 
     await service.start(makeCtx());
 
+    expect(onInternalDiagnosticEventMock).toHaveBeenCalledTimes(1);
+    expect(onDiagnosticEventMock).not.toHaveBeenCalled();
+  });
+
+  test("falls back to public onDiagnosticEvent when onInternalDiagnosticEvent is unavailable (older openclaw)", async () => {
+    const { resolveDiagnosticHooks } = await import("../sdk-compat.js");
+    (resolveDiagnosticHooks as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      onDiagnosticEvent: onDiagnosticEventMock,
+      onInternalDiagnosticEvent: null,
+      registerLogTransport: registerLogTransportMock,
+    });
+
+    const { service } = createMetricsCollectorService(makeConfig());
+    await service.start(makeCtx());
+
     expect(onDiagnosticEventMock).toHaveBeenCalledTimes(1);
+    expect(onInternalDiagnosticEventMock).not.toHaveBeenCalled();
   });
 
   test("creates only unique OTel instruments (no duplicated counters/histograms)", async () => {
@@ -503,7 +524,7 @@ describe("MetricsCollector service", () => {
 
     await service.start(makeCtx());
 
-    expect(onDiagnosticEventMock).toHaveBeenCalledTimes(1);
+    expect(onInternalDiagnosticEventMock).toHaveBeenCalledTimes(1);
 
     await service.stop!(makeCtx());
 
@@ -521,6 +542,7 @@ describe("MetricsCollector service", () => {
     await service.start(ctx);
 
     expect(onDiagnosticEventMock).not.toHaveBeenCalled();
+    expect(onInternalDiagnosticEventMock).not.toHaveBeenCalled();
     expect(ctx.logger.info).toHaveBeenCalledWith(
       "grafana-lens: metrics collection disabled",
     );

@@ -155,6 +155,23 @@ export function clearGlobalSingletonForTests(key: symbol): void {
 export type DiagnosticHooks = {
   onDiagnosticEvent: ((listener: (evt: unknown) => void) => () => void) | null;
   /**
+   * Unfiltered diagnostic-event subscription. The public `onDiagnosticEvent`
+   * filters events whose dispatch metadata is `trusted` (and `log.record`).
+   * Starting openclaw 2026.5.7 the `model.usage` event is emitted via
+   * `emitTrustedDiagnosticEvent` — so every metric grafana-lens derives from
+   * `model.usage` (tokens, context, cost, cache ratios, etc.) goes silent on
+   * 2026.5.7+ unless we subscribe via this unfiltered hook.
+   *
+   * Reached via the `openclaw/plugin-sdk/diagnostic-runtime` subpath. The
+   * naming `onInternal*` signals "internal-by-name but kept exported": same
+   * shape openclaw uses for its own privileged consumers. Treat as semver-
+   * minor-fragile — `contracts.test.ts` is the canary that fires the day it
+   * is renamed or removed.
+   */
+  onInternalDiagnosticEvent:
+    | ((listener: (event: unknown, metadata: { trusted?: boolean }) => void) => () => void)
+    | null;
+  /**
    * App-log forwarding hook. Permanently removed from openclaw's public SDK
    * at v2026.5.5+ (openclaw's own logger-transport.test asserts it's undefined
    * on every plugin-sdk export site). Will be `null` on 2026.5.5+; callers
@@ -193,7 +210,11 @@ export type SdkResolverLogger = {
 export async function resolveDiagnosticHooks(
   logger?: SdkResolverLogger,
 ): Promise<DiagnosticHooks> {
-  const hooks: DiagnosticHooks = { onDiagnosticEvent: null, registerLogTransport: null };
+  const hooks: DiagnosticHooks = {
+    onDiagnosticEvent: null,
+    onInternalDiagnosticEvent: null,
+    registerLogTransport: null,
+  };
   const paths = [
     "openclaw/plugin-sdk/diagnostic-runtime",
     "openclaw/plugin-sdk",
@@ -206,6 +227,13 @@ export async function resolveDiagnosticHooks(
           logger?.debug?.(`grafana-lens: sdk-compat: resolved onDiagnosticEvent from ${p}`);
         }
         hooks.onDiagnosticEvent ??= m.onDiagnosticEvent as DiagnosticHooks["onDiagnosticEvent"];
+      }
+      if (typeof m.onInternalDiagnosticEvent === "function") {
+        if (!hooks.onInternalDiagnosticEvent) {
+          logger?.debug?.(`grafana-lens: sdk-compat: resolved onInternalDiagnosticEvent from ${p}`);
+        }
+        hooks.onInternalDiagnosticEvent ??=
+          m.onInternalDiagnosticEvent as DiagnosticHooks["onInternalDiagnosticEvent"];
       }
       if (typeof m.registerLogTransport === "function") {
         hooks.registerLogTransport ??= m.registerLogTransport as DiagnosticHooks["registerLogTransport"];
@@ -224,6 +252,17 @@ export async function resolveDiagnosticHooks(
     // registerLogTransport is permanently null at openclaw 2026.5.5+; only
     // onDiagnosticEvent gates the early break.
     if (hooks.onDiagnosticEvent) break;
+  }
+  // Warn when the unfiltered hook is unavailable but the public hook resolved
+  // — on openclaw >= 2026.5.7 this means all model.usage-derived metrics will
+  // silently stay empty.
+  if (hooks.onDiagnosticEvent && !hooks.onInternalDiagnosticEvent) {
+    logger?.warn?.(
+      "grafana-lens: sdk-compat: onInternalDiagnosticEvent not exported by installed openclaw — " +
+        "model.usage-derived metrics (openclaw_lens_tokens, _cost_by_*, _context_tokens, _cache_*_ratio, " +
+        "_daily_cost_usd, _cache_savings_usd, _session_latency_avg_ms) will be missing on openclaw >= 2026.5.7. " +
+        "Report at https://github.com/awsome-o/grafana-lens/issues with your openclaw version.",
+    );
   }
   return hooks;
 }

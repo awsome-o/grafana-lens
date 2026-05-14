@@ -164,4 +164,15 @@ describe("contracts.tools drift-guard (Issue #9)", () => {
     // registerLogTransport is permanently removed at openclaw 2026.5.5+ — null is
     // the new normal, not a regression. We assert nothing about its value here.
   });
+
+  test("resolveDiagnosticHooks returns a non-null onInternalDiagnosticEvent against installed openclaw (rename canary)", async () => {
+    // Openclaw 2026.5.7 moved `model.usage` to the trusted dispatch channel;
+    // the public `onDiagnosticEvent` filters trusted events, so we must
+    // subscribe via `onInternalDiagnosticEvent` to keep model.usage-derived
+    // metrics flowing. This test is the canary that fires the day openclaw
+    // renames or removes the un-gated export — see src/sdk-compat.ts for the
+    // tracked rename surface.
+    const hooks = await resolveDiagnosticHooks();
+    expect(hooks.onInternalDiagnosticEvent).toBeTypeOf("function");
+  });
 });

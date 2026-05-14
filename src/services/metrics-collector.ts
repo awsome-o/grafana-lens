@@ -171,10 +171,11 @@ export function createMetricsCollectorService(
 
       // ── Resolve SDK hooks (version-resilient dynamic import) ────
       const hooks = await resolveDiagnosticHooks(ctx.logger);
-      const onDiagnosticEvent = hooks.onDiagnosticEvent as
+      const publicOnDiagnosticEvent = hooks.onDiagnosticEvent as
         ((listener: (evt: DiagnosticEventPayload) => void) => () => void) | null;
+      const onInternalDiagnosticEvent = hooks.onInternalDiagnosticEvent;
       const { registerLogTransport } = hooks;
-      if (!onDiagnosticEvent) {
+      if (!publicOnDiagnosticEvent && !onInternalDiagnosticEvent) {
         ctx.logger.error(
           "grafana-lens: onDiagnosticEvent not available — metrics collection disabled. " +
           "Check the preceding 'sdk-compat: import(...)' warnings for the underlying reason. " +
@@ -182,6 +183,22 @@ export function createMetricsCollectorService(
         );
         return;
       }
+
+      // openclaw 2026.5.7+ emits `model.usage` via `emitTrustedDiagnosticEvent`,
+      // and the public `onDiagnosticEvent` filters trusted events. Prefer the
+      // unfiltered `onInternalDiagnosticEvent` so model.usage-derived metrics
+      // keep flowing. On older openclaw where model.usage is not trusted, both
+      // hooks deliver the same events — we drop `log.record` ourselves to
+      // match the public-hook contract.
+      const subscribeDiagnostic: (listener: (evt: DiagnosticEventPayload) => void) => () => void =
+        onInternalDiagnosticEvent
+          ? (listener) =>
+              onInternalDiagnosticEvent((event, _metadata) => {
+                const evt = event as { type?: string };
+                if (evt.type === "log.record") return;
+                listener(event as DiagnosticEventPayload);
+              })
+          : publicOnDiagnosticEvent!;
 
       // ── Derive per-signal OTLP endpoints ────────────────────────
       const otlpConfig = config.otlp ?? {};
@@ -437,7 +454,7 @@ export function createMetricsCollectorService(
             if (configPricing) return estimateUsageCost(configPricing, usage);
             return estimateCostFallback(provider, model, usage);
           },
-          onDiagnosticEvent: onDiagnosticEvent as LifecycleTelemetryOpts["onDiagnosticEvent"],
+          onDiagnosticEvent: subscribeDiagnostic as LifecycleTelemetryOpts["onDiagnosticEvent"],
         };
         state.lifecycle = createLifecycleTelemetry(state.otelTraces, state.otelLogs, {
           tokenUsage,
@@ -761,7 +778,7 @@ export function createMetricsCollectorService(
       // DIAGNOSTIC EVENT HANDLER — metrics + logs + traces
       // ══════════════════════════════════════════════════════════════
 
-      state.unsubscribe = onDiagnosticEvent(((evt: ExtendedDiagnosticEvent) => {
+      state.unsubscribe = subscribeDiagnostic(((evt: ExtendedDiagnosticEvent) => {
         // ── Metrics (gauge updates) ────────────────────────────────
         switch (evt.type) {
           case "model.usage": {
